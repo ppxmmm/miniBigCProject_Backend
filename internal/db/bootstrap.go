@@ -14,6 +14,9 @@ func Bootstrap(ctx context.Context, database *gorm.DB) error {
 	if err := migrateMissingTables(ctx, database); err != nil {
 		return fmt.Errorf("auto migrate dashboard schema: %w", err)
 	}
+	if err := migrateColumnTypes(ctx, database); err != nil {
+		return fmt.Errorf("migrate column types: %w", err)
+	}
 	if err := ensureIndexes(ctx, database); err != nil {
 		return fmt.Errorf("ensure dashboard indexes: %w", err)
 	}
@@ -22,6 +25,25 @@ func Bootstrap(ctx context.Context, database *gorm.DB) error {
 		return fmt.Errorf("seed mock data: %w", err)
 	}
 
+	return nil
+}
+
+// migrateColumnTypes fixes column types that AutoMigrate cannot change on existing tables.
+func migrateColumnTypes(ctx context.Context, database *gorm.DB) error {
+	// eta_time may have been created as timestamptz when ETATime was time.Time;
+	// the model now declares type:time, so coerce it here idempotently.
+	stmt := `
+		DO $$ BEGIN
+			IF (SELECT data_type FROM information_schema.columns
+				WHERE table_name = 'deliveries' AND column_name = 'eta_time')
+				= 'timestamp with time zone' THEN
+				ALTER TABLE deliveries ALTER COLUMN eta_time TYPE time
+					USING eta_time::time;
+			END IF;
+		END $$`
+	if err := database.WithContext(ctx).Exec(stmt).Error; err != nil {
+		return fmt.Errorf("alter deliveries.eta_time to time: %w", err)
+	}
 	return nil
 }
 
