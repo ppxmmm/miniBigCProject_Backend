@@ -1,16 +1,17 @@
 package main
 
 import (
-	"database/sql"
-	"fmt"
+	"context"
 	"log"
 	"net/http"
 	"time"
 
-	"github.com/go-chi/chi/v5"
 	"github.com/joho/godotenv"
-	_ "github.com/lib/pq"
+	appdb "github.com/ppxmmm/miniBigCProject_Backend/internal/db"
+	"github.com/ppxmmm/miniBigCProject_Backend/internal/router"
 	"github.com/ppxmmm/miniBigCProject_Backend/internal/util"
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
 )
 
 func main() {
@@ -20,37 +21,35 @@ func main() {
 
 	config := util.LoadConfig()
 
-	db, err := sql.Open("postgres", config.DB.DSN())
+	db, err := gorm.Open(postgres.Open(config.DB.DSN()), &gorm.Config{})
 	if err != nil {
 		log.Fatalf("open database: %v", err)
 	}
-	defer db.Close()
 
-	db.SetConnMaxLifetime(5 * time.Minute)
-	db.SetMaxOpenConns(10)
-	db.SetMaxIdleConns(5)
+	sqlDB, err := db.DB()
+	if err != nil {
+		log.Fatalf("get database connection pool: %v", err)
+	}
+	defer sqlDB.Close()
 
-	if err := db.Ping(); err != nil {
+	sqlDB.SetConnMaxLifetime(5 * time.Minute)
+	sqlDB.SetMaxOpenConns(10)
+	sqlDB.SetMaxIdleConns(5)
+
+	if err := sqlDB.Ping(); err != nil {
 		log.Fatalf("connect database: %v", err)
 	}
 
-	router := chi.NewRouter()
-	router.Get("/", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "Welcome to %s", config.AppName)
-	})
+	bootstrapCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	if err := appdb.Bootstrap(bootstrapCtx, db); err != nil {
+		log.Fatalf("bootstrap database: %v", err)
+	}
 
-	router.Get("/health", func(w http.ResponseWriter, r *http.Request) {
-		if err := db.PingContext(r.Context()); err != nil {
-			http.Error(w, "database unavailable", http.StatusServiceUnavailable)
-			return
-		}
-
-		w.WriteHeader(http.StatusOK)
-		fmt.Fprint(w, "ok")
-	})
+	handler := router.New(config.AppName, db)
 
 	log.Println("Server starting on port", config.Port)
-	if err := http.ListenAndServe(":"+config.Port, router); err != nil {
+	if err := http.ListenAndServe(":"+config.Port, handler); err != nil {
 		log.Fatalf("start server: %v", err)
 	}
 }

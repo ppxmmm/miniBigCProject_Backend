@@ -37,11 +37,11 @@ func LoadConfig() Config {
 		AppName: Env("APP_NAME", "My Backend Server"),
 		Port:    Env("PORT", "5001"),
 		DB: DBConfig{
-			User:     Env("DB_USER", "root"),
-			Password: Env("DB_PASSWORD", ""),
+			User:     Env("DB_USER", "admin"),
+			Password: Env("DB_PASSWORD", "root"),
 			Host:     Env("DB_HOST", "localhost"),
-			Port:     Env("DB_PORT", "3306"),
-			Name:     Env("DB_NAME", "mini_big_c"),
+			Port:     Env("DB_PORT", "5433"),
+			Name:     Env("DB_NAME", "test_db"),
 		},
 	}
 }
