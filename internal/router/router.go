@@ -6,13 +6,15 @@ import (
 
 	"github.com/go-chi/chi/v5"
 	"github.com/ppxmmm/miniBigCProject_Backend/internal/handler"
+	"github.com/ppxmmm/miniBigCProject_Backend/internal/middleware"
 	"github.com/ppxmmm/miniBigCProject_Backend/internal/repo"
 	"github.com/ppxmmm/miniBigCProject_Backend/internal/service"
+	"github.com/ppxmmm/miniBigCProject_Backend/internal/util"
 	"gorm.io/gorm"
 )
 
 // New creates the HTTP router for the backend.
-func New(appName string, database *gorm.DB) http.Handler {
+func New(appName string, database *gorm.DB, config util.Config) http.Handler {
 	dashboardRepository := repo.NewDashboardRepository(database)
 	dashboardService := service.NewDashboardService(dashboardRepository)
 	dashboardHandler := handler.NewDashboardHandler(dashboardService)
@@ -21,6 +23,7 @@ func New(appName string, database *gorm.DB) http.Handler {
 	dataHandler := handler.NewDataHandler(dataService)
 
 	r := chi.NewRouter()
+	r.Use(middleware.CORS(config.CORSOrigins))
 	r.Get("/", func(w http.ResponseWriter, _ *http.Request) {
 		fmt.Fprintf(w, "Welcome to %s", appName)
 	})

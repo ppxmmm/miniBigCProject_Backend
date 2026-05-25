@@ -46,7 +46,7 @@ func main() {
 		log.Fatalf("bootstrap database: %v", err)
 	}
 
-	handler := router.New(config.AppName, db)
+	handler := router.New(config.AppName, db, config)
 
 	log.Println("Server starting on port", config.Port)
 	if err := http.ListenAndServe(":"+config.Port, handler); err != nil {

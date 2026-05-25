@@ -7,9 +7,10 @@ import (
 
 // Config contains runtime configuration loaded from environment variables.
 type Config struct {
-	AppName string
-	Port    string
-	DB      DBConfig
+	AppName      string
+	Port         string
+	CORSOrigins  string
+	DB           DBConfig
 }
 
 // DBConfig contains database connection settings.
@@ -34,8 +35,12 @@ func Env(key string, fallback string) string {
 // LoadConfig loads application configuration from environment variables.
 func LoadConfig() Config {
 	return Config{
-		AppName: Env("APP_NAME", "My Backend Server"),
+		AppName: Env("APP_NAME", "Mini BigC API"),
 		Port:    Env("PORT", "5001"),
+		CORSOrigins: Env(
+			"CORS_ORIGINS",
+			"http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000",
+		),
 		DB: DBConfig{
 			User:     Env("DB_USER", "admin"),
 			Password: Env("DB_PASSWORD", "root"),
