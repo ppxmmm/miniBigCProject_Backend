@@ -3,6 +3,7 @@ package util
 import (
 	"context"
 	"fmt"
+	"math"
 	"time"
 
 	"github.com/ppxmmm/miniBigCProject_Backend/internal/model"
@@ -10,31 +11,16 @@ import (
 	"gorm.io/gorm/clause"
 )
 
+type mockStoreSeed struct {
+	store            model.Store
+	deliveryPrefix   string
+	suggestionPrefix string
+	salesScale       float64
+}
+
 // SeedMockData loads dashboard mock data using idempotent upserts.
 func SeedMockData(ctx context.Context, database *gorm.DB) error {
 	return database.WithContext(ctx).Transaction(func(tx *gorm.DB) error {
-		store := model.Store{
-			Code:            "MBC-0421",
-			NameTH:          "มินิ บิ๊กซี สาขาทองหล่อ ซอย 13",
-			NameEN:          "Mini BigC · Thonglor Soi 13",
-			ShortNameTH:     "ทองหล่อ ซ.13",
-			ShortNameEN:     "Thonglor 13",
-			AddressTH:       "121/4 ซ.สุขุมวิท 55, แขวงคลองตันเหนือ, วัฒนา, กรุงเทพฯ 10110",
-			AddressEN:       "121/4 Sukhumvit 55, Khlong Tan Nuea, Watthana, Bangkok 10110",
-			ManagerNameTH:   "ปริญญา ทวีศักดิ์",
-			ManagerNameEN:   "Parinya Taweesak",
-			ManagerInitials: "PT",
-			StaffNameTH:     "ณัฐวุฒิ สมบูรณ์",
-			StaffNameEN:     "Nattawut Somboon",
-			StaffInitials:   "NS",
-		}
-		if err := tx.Clauses(upsertByColumns([]string{"code"})).Create(&store).Error; err != nil {
-			return fmt.Errorf("upsert store: %w", err)
-		}
-		if err := tx.Where("code = ?", store.Code).First(&store).Error; err != nil {
-			return fmt.Errorf("query seeded store: %w", err)
-		}
-
 		categoryIDs, err := seedCategories(tx)
 		if err != nil {
 			return err
@@ -48,18 +34,71 @@ func SeedMockData(ctx context.Context, database *gorm.DB) error {
 		}
 
 		today := time.Now().In(time.FixedZone("Asia/Bangkok", 7*60*60)).Truncate(24 * time.Hour)
-		seeders := []func(*gorm.DB, int64, time.Time, map[string]int64, map[string]int64) error{
-			seedSales,
-			seedCategorySales,
-			seedPaymentMix,
-			seedTopProducts,
-			seedInventory,
-			seedDeliveries,
-			seedSuggestions,
+		storeSeeds := []mockStoreSeed{
+			{
+				store: model.Store{
+					Code:            "MBC-0421",
+					NameTH:          "มินิ บิ๊กซี สาขาทองหล่อ ซอย 13",
+					NameEN:          "Mini BigC · Thonglor Soi 13",
+					ShortNameTH:     "ทองหล่อ ซ.13",
+					ShortNameEN:     "Thonglor 13",
+					AddressTH:       "121/4 ซ.สุขุมวิท 55, แขวงคลองตันเหนือ, วัฒนา, กรุงเทพฯ 10110",
+					AddressEN:       "121/4 Sukhumvit 55, Khlong Tan Nuea, Watthana, Bangkok 10110",
+					ManagerNameTH:   "ปริญญา ทวีศักดิ์",
+					ManagerNameEN:   "Parinya Taweesak",
+					ManagerInitials: "PT",
+					StaffNameTH:     "ณัฐวุฒิ สมบูรณ์",
+					StaffNameEN:     "Nattawut Somboon",
+					StaffInitials:   "NS",
+				},
+				deliveryPrefix:   "BC-260522",
+				suggestionPrefix: "",
+				salesScale:       1,
+			},
+			{
+				store: model.Store{
+					Code:            "MBC-0178",
+					NameTH:          "มินิ บิ๊กซี สาขาอารีย์ ซอย 1",
+					NameEN:          "Mini BigC · Ari Soi 1",
+					ShortNameTH:     "อารีย์ ซ.1",
+					ShortNameEN:     "Ari 1",
+					AddressTH:       "36/2 ซ.อารีย์ 1, แขวงพญาไท, พญาไท, กรุงเทพฯ 10400",
+					AddressEN:       "36/2 Ari Soi 1, Phaya Thai, Bangkok 10400",
+					ManagerNameTH:   "ศิริพร วงศ์วัฒนา",
+					ManagerNameEN:   "Siriporn Wongwattana",
+					ManagerInitials: "SW",
+					StaffNameTH:     "กิตติพงศ์ แสงชัย",
+					StaffNameEN:     "Kittipong Saengchai",
+					StaffInitials:   "KS",
+				},
+				deliveryPrefix:   "BC-260523",
+				suggestionPrefix: "ari-",
+				salesScale:       0.82,
+			},
 		}
-		for _, seeder := range seeders {
-			if err := seeder(tx, store.ID, today, categoryIDs, paymentMethodIDs); err != nil {
-				return err
+
+		for _, seed := range storeSeeds {
+			store := seed.store
+			if err := tx.Clauses(upsertByColumns([]string{"code"})).Create(&store).Error; err != nil {
+				return fmt.Errorf("upsert store %s: %w", seed.store.Code, err)
+			}
+			if err := tx.Where("code = ?", seed.store.Code).First(&store).Error; err != nil {
+				return fmt.Errorf("query seeded store %s: %w", seed.store.Code, err)
+			}
+
+			seeders := []func(*gorm.DB, mockStoreSeed, int64, time.Time, map[string]int64, map[string]int64) error{
+				seedSales,
+				seedCategorySales,
+				seedPaymentMix,
+				seedTopProducts,
+				seedInventory,
+				seedDeliveries,
+				seedSuggestions,
+			}
+			for _, seeder := range seeders {
+				if err := seeder(tx, seed, store.ID, today, categoryIDs, paymentMethodIDs); err != nil {
+					return err
+				}
 			}
 		}
 
@@ -146,7 +185,7 @@ func seedProducts(tx *gorm.DB, categoryIDs map[string]int64) error {
 	return nil
 }
 
-func seedSales(tx *gorm.DB, storeID int64, today time.Time, _ map[string]int64, _ map[string]int64) error {
+func seedSales(tx *gorm.DB, seed mockStoreSeed, storeID int64, today time.Time, _ map[string]int64, _ map[string]int64) error {
 	hourlyValues := []float64{3200, 4100, 5800, 8400, 11200, 9800, 12400, 15600, 14200, 11800, 9400, 13200, 18900, 21400, 19200, 14800, 11600, 8200}
 	hourlyComparison := []float64{2900, 3800, 5200, 7900, 10400, 9100, 11600, 14200, 13100, 10800, 8900, 12100, 17400, 19800, 17600, 13900, 10900, 7800}
 	hourly := make([]model.SalesHourly, 0, len(hourlyValues))
@@ -155,8 +194,8 @@ func seedSales(tx *gorm.DB, storeID int64, today time.Time, _ map[string]int64, 
 			StoreID:              storeID,
 			SaleDate:             today,
 			Hour:                 index + 6,
-			SalesValue:           value,
-			ComparisonSalesValue: hourlyComparison[index],
+			SalesValue:           scaledCurrency(value, seed.salesScale),
+			ComparisonSalesValue: scaledCurrency(hourlyComparison[index], seed.salesScale),
 		})
 	}
 	if err := tx.Clauses(upsertByColumns([]string{"store_id", "sale_date", "hour"})).Create(&hourly).Error; err != nil {
@@ -170,8 +209,8 @@ func seedSales(tx *gorm.DB, storeID int64, today time.Time, _ map[string]int64, 
 		daily = append(daily, model.SalesDaily{
 			StoreID:              storeID,
 			SaleDate:             today.AddDate(0, 0, index-len(dailyValues)+1),
-			SalesValue:           value,
-			ComparisonSalesValue: dailyComparison[index],
+			SalesValue:           scaledCurrency(value, seed.salesScale),
+			ComparisonSalesValue: scaledCurrency(dailyComparison[index], seed.salesScale),
 		})
 	}
 	if err := tx.Clauses(upsertByColumns([]string{"store_id", "sale_date"})).Create(&daily).Error; err != nil {
@@ -185,7 +224,7 @@ func seedSales(tx *gorm.DB, storeID int64, today time.Time, _ map[string]int64, 
 			StoreID:    storeID,
 			Year:       today.Year(),
 			Month:      index + 1,
-			SalesValue: value,
+			SalesValue: scaledCurrency(value, seed.salesScale),
 		})
 	}
 	if err := tx.Clauses(upsertByColumns([]string{"store_id", "year", "month"})).Create(&monthly).Error; err != nil {
@@ -195,14 +234,14 @@ func seedSales(tx *gorm.DB, storeID int64, today time.Time, _ map[string]int64, 
 	return nil
 }
 
-func seedCategorySales(tx *gorm.DB, storeID int64, today time.Time, categoryIDs map[string]int64, _ map[string]int64) error {
+func seedCategorySales(tx *gorm.DB, seed mockStoreSeed, storeID int64, today time.Time, categoryIDs map[string]int64, _ map[string]int64) error {
 	rows := []model.CategorySalesEntity{
-		{StoreID: storeID, CategoryID: categoryIDs["Food & Beverage"], SalesDate: today, SalesValue: 142800, Share: 0.38, TrendPercent: 6.2},
-		{StoreID: storeID, CategoryID: categoryIDs["Household"], SalesDate: today, SalesValue: 78400, Share: 0.21, TrendPercent: -2.1},
-		{StoreID: storeID, CategoryID: categoryIDs["Personal Care"], SalesDate: today, SalesValue: 56200, Share: 0.15, TrendPercent: 4.8},
-		{StoreID: storeID, CategoryID: categoryIDs["Snacks"], SalesDate: today, SalesValue: 49100, Share: 0.13, TrendPercent: 11.3},
-		{StoreID: storeID, CategoryID: categoryIDs["Frozen"], SalesDate: today, SalesValue: 28400, Share: 0.075, TrendPercent: -1.4},
-		{StoreID: storeID, CategoryID: categoryIDs["Other"], SalesDate: today, SalesValue: 21100, Share: 0.055, TrendPercent: 2.0},
+		{StoreID: storeID, CategoryID: categoryIDs["Food & Beverage"], SalesDate: today, SalesValue: scaledCurrency(142800, seed.salesScale), Share: 0.38, TrendPercent: 6.2},
+		{StoreID: storeID, CategoryID: categoryIDs["Household"], SalesDate: today, SalesValue: scaledCurrency(78400, seed.salesScale), Share: 0.21, TrendPercent: -2.1},
+		{StoreID: storeID, CategoryID: categoryIDs["Personal Care"], SalesDate: today, SalesValue: scaledCurrency(56200, seed.salesScale), Share: 0.15, TrendPercent: 4.8},
+		{StoreID: storeID, CategoryID: categoryIDs["Snacks"], SalesDate: today, SalesValue: scaledCurrency(49100, seed.salesScale), Share: 0.13, TrendPercent: 11.3},
+		{StoreID: storeID, CategoryID: categoryIDs["Frozen"], SalesDate: today, SalesValue: scaledCurrency(28400, seed.salesScale), Share: 0.075, TrendPercent: -1.4},
+		{StoreID: storeID, CategoryID: categoryIDs["Other"], SalesDate: today, SalesValue: scaledCurrency(21100, seed.salesScale), Share: 0.055, TrendPercent: 2.0},
 	}
 	if err := tx.Clauses(upsertByColumns([]string{"store_id", "category_id", "sales_date"})).Create(&rows).Error; err != nil {
 		return fmt.Errorf("upsert category sales: %w", err)
@@ -211,7 +250,7 @@ func seedCategorySales(tx *gorm.DB, storeID int64, today time.Time, categoryIDs 
 	return nil
 }
 
-func seedPaymentMix(tx *gorm.DB, storeID int64, today time.Time, _ map[string]int64, paymentMethodIDs map[string]int64) error {
+func seedPaymentMix(tx *gorm.DB, _ mockStoreSeed, storeID int64, today time.Time, _ map[string]int64, paymentMethodIDs map[string]int64) error {
 	rows := []model.PaymentMixEntity{
 		{StoreID: storeID, SalesDate: today, PaymentMethodID: paymentMethodIDs["Cash"], Share: 0.38},
 		{StoreID: storeID, SalesDate: today, PaymentMethodID: paymentMethodIDs["PromptPay / QR"], Share: 0.34},
@@ -226,14 +265,14 @@ func seedPaymentMix(tx *gorm.DB, storeID int64, today time.Time, _ map[string]in
 	return nil
 }
 
-func seedTopProducts(tx *gorm.DB, storeID int64, today time.Time, _ map[string]int64, _ map[string]int64) error {
+func seedTopProducts(tx *gorm.DB, seed mockStoreSeed, storeID int64, today time.Time, _ map[string]int64, _ map[string]int64) error {
 	rows := []model.TopProductEntity{
-		{StoreID: storeID, SKU: "FB-0102", SalesDate: today, SoldQuantity: 184, SalesValue: 9568, TrendPercent: 12},
-		{StoreID: storeID, SKU: "FB-2284", SalesDate: today, SoldQuantity: 162, SalesValue: 4374, TrendPercent: 8},
-		{StoreID: storeID, SKU: "FB-0411", SalesDate: today, SoldQuantity: 148, SalesValue: 2516, TrendPercent: 5},
-		{StoreID: storeID, SKU: "FB-0099", SalesDate: today, SoldQuantity: 121, SalesValue: 8470, TrendPercent: -2},
-		{StoreID: storeID, SKU: "PC-0331", SalesDate: today, SoldQuantity: 96, SalesValue: 11520, TrendPercent: 18},
-		{StoreID: storeID, SKU: "HH-1820", SalesDate: today, SoldQuantity: 88, SalesValue: 7392, TrendPercent: 3},
+		{StoreID: storeID, SKU: "FB-0102", SalesDate: today, SoldQuantity: scaledQuantity(184, seed.salesScale), SalesValue: scaledCurrency(9568, seed.salesScale), TrendPercent: 12},
+		{StoreID: storeID, SKU: "FB-2284", SalesDate: today, SoldQuantity: scaledQuantity(162, seed.salesScale), SalesValue: scaledCurrency(4374, seed.salesScale), TrendPercent: 8},
+		{StoreID: storeID, SKU: "FB-0411", SalesDate: today, SoldQuantity: scaledQuantity(148, seed.salesScale), SalesValue: scaledCurrency(2516, seed.salesScale), TrendPercent: 5},
+		{StoreID: storeID, SKU: "FB-0099", SalesDate: today, SoldQuantity: scaledQuantity(121, seed.salesScale), SalesValue: scaledCurrency(8470, seed.salesScale), TrendPercent: -2},
+		{StoreID: storeID, SKU: "PC-0331", SalesDate: today, SoldQuantity: scaledQuantity(96, seed.salesScale), SalesValue: scaledCurrency(11520, seed.salesScale), TrendPercent: 18},
+		{StoreID: storeID, SKU: "HH-1820", SalesDate: today, SoldQuantity: scaledQuantity(88, seed.salesScale), SalesValue: scaledCurrency(7392, seed.salesScale), TrendPercent: 3},
 	}
 	if err := tx.Clauses(upsertByColumns([]string{"store_id", "sku", "sales_date"})).Create(&rows).Error; err != nil {
 		return fmt.Errorf("upsert top products: %w", err)
@@ -242,7 +281,7 @@ func seedTopProducts(tx *gorm.DB, storeID int64, today time.Time, _ map[string]i
 	return nil
 }
 
-func seedInventory(tx *gorm.DB, storeID int64, today time.Time, categoryIDs map[string]int64, _ map[string]int64) error {
+func seedInventory(tx *gorm.DB, _ mockStoreSeed, storeID int64, today time.Time, categoryIDs map[string]int64, _ map[string]int64) error {
 	expiring := []struct {
 		entity model.ExpiringInventoryEntity
 		price  float64
@@ -302,15 +341,15 @@ func seedInventory(tx *gorm.DB, storeID int64, today time.Time, categoryIDs map[
 	return nil
 }
 
-func seedDeliveries(tx *gorm.DB, storeID int64, _ time.Time, _ map[string]int64, _ map[string]int64) error {
+func seedDeliveries(tx *gorm.DB, seed mockStoreSeed, storeID int64, _ time.Time, _ map[string]int64, _ map[string]int64) error {
 	rows := []model.Delivery{
-		{ID: "BC-26052201", StoreID: storeID, CustomerNameTH: "คุณณัฐกานต์ ม.", CustomerNameEN: "K. Natthakarn M.", AddressTH: "ทองหล่อ ซ.10", AddressEN: "Thonglor Soi 10", ItemCount: 8, OrderValue: 487, DriverNameTH: "วินัย", DriverNameEN: "Winai", Status: "enRoute", ETATime: "14:25", IsLate: false, DistanceKM: 1.2},
-		{ID: "BC-26052202", StoreID: storeID, CustomerNameTH: "คุณปานทิพย์ ส.", CustomerNameEN: "K. Panthip S.", AddressTH: "เอกมัย ซ.12", AddressEN: "Ekkamai Soi 12", ItemCount: 22, OrderValue: 1284, DriverNameTH: "สมชาย", DriverNameEN: "Somchai", Status: "enRoute", ETATime: "14:35", IsLate: true, DistanceKM: 2.4},
-		{ID: "BC-26052203", StoreID: storeID, CustomerNameTH: "คุณภาสกร ว.", CustomerNameEN: "K. Phasakorn W.", AddressTH: "ทองหล่อ ซ.5", AddressEN: "Thonglor Soi 5", ItemCount: 14, OrderValue: 892, DriverNameTH: "บุญส่ง", DriverNameEN: "Boonsong", Status: "preparing", ETATime: "15:00", IsLate: false, DistanceKM: 0.8},
-		{ID: "BC-26052204", StoreID: storeID, CustomerNameTH: "คุณกัลยา ก.", CustomerNameEN: "K. Kanlaya K.", AddressTH: "พร้อมพงษ์", AddressEN: "Phrom Phong", ItemCount: 31, OrderValue: 1872, DriverNameTH: "วินัย", DriverNameEN: "Winai", Status: "preparing", ETATime: "15:15", IsLate: false, DistanceKM: 1.8},
-		{ID: "BC-26052205", StoreID: storeID, CustomerNameTH: "คุณธีรพล ต.", CustomerNameEN: "K. Teeraphol T.", AddressTH: "ทองหล่อ ซ.8", AddressEN: "Thonglor Soi 8", ItemCount: 6, OrderValue: 320, DriverNameTH: "สมชาย", DriverNameEN: "Somchai", Status: "delivered", ETATime: "13:50", IsLate: false, DistanceKM: 1.0},
-		{ID: "BC-26052206", StoreID: storeID, CustomerNameTH: "คุณวรินทร ก.", CustomerNameEN: "K. Warintorn K.", AddressTH: "เอกมัย ซ.4", AddressEN: "Ekkamai Soi 4", ItemCount: 12, OrderValue: 654, DriverNameTH: "บุญส่ง", DriverNameEN: "Boonsong", Status: "delivered", ETATime: "13:20", IsLate: false, DistanceKM: 2.0},
-		{ID: "BC-26052207", StoreID: storeID, CustomerNameTH: "คุณพิชชา ม.", CustomerNameEN: "K. Phichcha M.", AddressTH: "ทองหล่อ ซ.23", AddressEN: "Thonglor Soi 23", ItemCount: 4, OrderValue: 198, DriverNameTH: "วินัย", DriverNameEN: "Winai", Status: "delivered", ETATime: "12:45", IsLate: false, DistanceKM: 1.5},
+		{ID: seed.deliveryPrefix + "01", StoreID: storeID, CustomerNameTH: "คุณณัฐกานต์ ม.", CustomerNameEN: "K. Natthakarn M.", AddressTH: "ทองหล่อ ซ.10", AddressEN: "Thonglor Soi 10", ItemCount: 8, OrderValue: scaledCurrency(487, seed.salesScale), DriverNameTH: "วินัย", DriverNameEN: "Winai", Status: "enRoute", ETATime: "14:25", IsLate: false, DistanceKM: 1.2},
+		{ID: seed.deliveryPrefix + "02", StoreID: storeID, CustomerNameTH: "คุณปานทิพย์ ส.", CustomerNameEN: "K. Panthip S.", AddressTH: "เอกมัย ซ.12", AddressEN: "Ekkamai Soi 12", ItemCount: 22, OrderValue: scaledCurrency(1284, seed.salesScale), DriverNameTH: "สมชาย", DriverNameEN: "Somchai", Status: "enRoute", ETATime: "14:35", IsLate: true, DistanceKM: 2.4},
+		{ID: seed.deliveryPrefix + "03", StoreID: storeID, CustomerNameTH: "คุณภาสกร ว.", CustomerNameEN: "K. Phasakorn W.", AddressTH: "ทองหล่อ ซ.5", AddressEN: "Thonglor Soi 5", ItemCount: 14, OrderValue: scaledCurrency(892, seed.salesScale), DriverNameTH: "บุญส่ง", DriverNameEN: "Boonsong", Status: "preparing", ETATime: "15:00", IsLate: false, DistanceKM: 0.8},
+		{ID: seed.deliveryPrefix + "04", StoreID: storeID, CustomerNameTH: "คุณกัลยา ก.", CustomerNameEN: "K. Kanlaya K.", AddressTH: "พร้อมพงษ์", AddressEN: "Phrom Phong", ItemCount: 31, OrderValue: scaledCurrency(1872, seed.salesScale), DriverNameTH: "วินัย", DriverNameEN: "Winai", Status: "preparing", ETATime: "15:15", IsLate: false, DistanceKM: 1.8},
+		{ID: seed.deliveryPrefix + "05", StoreID: storeID, CustomerNameTH: "คุณธีรพล ต.", CustomerNameEN: "K. Teeraphol T.", AddressTH: "ทองหล่อ ซ.8", AddressEN: "Thonglor Soi 8", ItemCount: 6, OrderValue: scaledCurrency(320, seed.salesScale), DriverNameTH: "สมชาย", DriverNameEN: "Somchai", Status: "delivered", ETATime: "13:50", IsLate: false, DistanceKM: 1.0},
+		{ID: seed.deliveryPrefix + "06", StoreID: storeID, CustomerNameTH: "คุณวรินทร ก.", CustomerNameEN: "K. Warintorn K.", AddressTH: "เอกมัย ซ.4", AddressEN: "Ekkamai Soi 4", ItemCount: 12, OrderValue: scaledCurrency(654, seed.salesScale), DriverNameTH: "บุญส่ง", DriverNameEN: "Boonsong", Status: "delivered", ETATime: "13:20", IsLate: false, DistanceKM: 2.0},
+		{ID: seed.deliveryPrefix + "07", StoreID: storeID, CustomerNameTH: "คุณพิชชา ม.", CustomerNameEN: "K. Phichcha M.", AddressTH: "ทองหล่อ ซ.23", AddressEN: "Thonglor Soi 23", ItemCount: 4, OrderValue: scaledCurrency(198, seed.salesScale), DriverNameTH: "วินัย", DriverNameEN: "Winai", Status: "delivered", ETATime: "12:45", IsLate: false, DistanceKM: 1.5},
 	}
 	if err := tx.Clauses(upsertByColumns([]string{"id"})).Create(&rows).Error; err != nil {
 		return fmt.Errorf("upsert deliveries: %w", err)
@@ -319,20 +358,28 @@ func seedDeliveries(tx *gorm.DB, storeID int64, _ time.Time, _ map[string]int64,
 	return nil
 }
 
-func seedSuggestions(tx *gorm.DB, storeID int64, _ time.Time, _ map[string]int64, _ map[string]int64) error {
+func seedSuggestions(tx *gorm.DB, seed mockStoreSeed, storeID int64, _ time.Time, _ map[string]int64, _ map[string]int64) error {
 	rows := []model.Suggestion{
-		{ID: "p1", StoreID: storeID, Kind: "promo", Icon: "flame", TitleTH: "ลด 30% ขนมปังฟาร์มเฮ้าส์ใกล้หมดอายุ", TitleEN: "30% off Farmhouse bread near expiry", DescriptionTH: "มีสินค้า 11 ชิ้นที่หมดอายุภายใน 2 วัน ลดราคา 30% ภายในวันนี้คาดว่าจะลดมูลค่าสูญเสียได้ ฿245", DescriptionEN: "11 units expire in 2 days. A 30% same-day markdown would recover an estimated ฿245", UpsideValue: 245, Confidence: 0.92, DurationTH: "1 วัน", DurationEN: "1 day", TargetTH: "ลูกค้าทุกคน", TargetEN: "All customers", Type: "markdown"},
-		{ID: "p2", StoreID: storeID, Kind: "promo", Icon: "gift", TitleTH: "ซื้อ 2 แถม 1 — บะหมี่กึ่งสำเร็จรูป", TitleEN: "Buy 2 get 1 free — instant noodles", DescriptionTH: "ยอดขายบะหมี่ MAMA เพิ่ม 23% ในสัปดาห์นี้ จับคู่กับสินค้าเสริมเพื่อเพิ่มขนาดบิล", DescriptionEN: "MAMA noodle sales up 23% this week. Bundle to lift basket size", UpsideValue: 1840, Confidence: 0.78, DurationTH: "1 สัปดาห์", DurationEN: "1 week", TargetTH: "ลูกค้าประจำ", TargetEN: "Repeat customers", Type: "bundle"},
-		{ID: "p3", StoreID: storeID, Kind: "promo", Icon: "trending", TitleTH: "Happy Hour 17:00 - 19:00 เครื่องดื่มเย็น", TitleEN: "Happy hour 17:00 - 19:00, cold drinks", DescriptionTH: "ช่วง 17:00-19:00 มียอดขายเครื่องดื่มต่ำกว่าค่าเฉลี่ย 18% ลด 10% เพื่อกระตุ้นทราฟฟิก", DescriptionEN: "Cold drink sales 18% below average in 17:00-19:00 window. A 10% promo could lift footfall", UpsideValue: 980, Confidence: 0.65, DurationTH: "2 สัปดาห์", DurationEN: "2 weeks", TargetTH: "ลูกค้าหลังเลิกงาน", TargetEN: "After-work crowd", Type: "discount"},
-		{ID: "e1", StoreID: storeID, Kind: "event", Icon: "calendar", TitleTH: "เทศกาลวิสาขบูชา 31 พ.ค.", TitleEN: "Visakha Bucha · May 31", DescriptionTH: "วันหยุดนักขัตฤกษ์ ลูกค้าซื้อของไหว้พระและของแห้งเพิ่มขึ้น แนะนำให้สต็อกเทียน-ดอกไม้-น้ำดื่ม", DescriptionEN: "Public holiday. Customers stock up on offerings and dry goods — boost candles, flowers, water", UpsideValue: 8600, Confidence: 0.88, DurationTH: "5 วัน", DurationEN: "5 days", TargetTH: "ครอบครัว", TargetEN: "Families", Type: "event"},
-		{ID: "e2", StoreID: storeID, Kind: "event", Icon: "gift", TitleTH: "วันแม่ 12 ส.ค. — กระเช้าของขวัญ", TitleEN: "Mother's Day · Aug 12 — gift baskets", DescriptionTH: "เริ่มเตรียมการแสดงสินค้ากระเช้าและของขวัญ 14 วันก่อนวันแม่ ดึงดูดลูกค้าที่กำลังมองหา", DescriptionEN: "Start gift-basket merchandising 14 days ahead to capture early shoppers", UpsideValue: 14200, Confidence: 0.81, DurationTH: "3 สัปดาห์", DurationEN: "3 weeks", TargetTH: "ลูกค้าที่ต้องการของขวัญ", TargetEN: "Gift shoppers", Type: "event"},
-		{ID: "e3", StoreID: storeID, Kind: "event", Icon: "sparkle", TitleTH: "เปิดเทอม 16 พ.ค. — ของใช้นักเรียน", TitleEN: "Back to school · May 16", DescriptionTH: "ครัวเรือนใกล้สาขามีเด็กวัยเรียน ~38% เสนอจัดมุมเครื่องเขียน-นม-ขนมตอนเช้า", DescriptionEN: "~38% of households nearby have school-age kids. Set up a stationery + breakfast bundle corner", UpsideValue: 6400, Confidence: 0.74, DurationTH: "4 สัปดาห์", DurationEN: "4 weeks", TargetTH: "ผู้ปกครอง", TargetEN: "Parents", Type: "event"},
+		{ID: seed.suggestionPrefix + "p1", StoreID: storeID, Kind: "promo", Icon: "flame", TitleTH: "ลด 30% ขนมปังฟาร์มเฮ้าส์ใกล้หมดอายุ", TitleEN: "30% off Farmhouse bread near expiry", DescriptionTH: "มีสินค้า 11 ชิ้นที่หมดอายุภายใน 2 วัน ลดราคา 30% ภายในวันนี้คาดว่าจะลดมูลค่าสูญเสียได้ ฿245", DescriptionEN: "11 units expire in 2 days. A 30% same-day markdown would recover an estimated ฿245", UpsideValue: scaledCurrency(245, seed.salesScale), Confidence: 0.92, DurationTH: "1 วัน", DurationEN: "1 day", TargetTH: "ลูกค้าทุกคน", TargetEN: "All customers", Type: "markdown"},
+		{ID: seed.suggestionPrefix + "p2", StoreID: storeID, Kind: "promo", Icon: "gift", TitleTH: "ซื้อ 2 แถม 1 — บะหมี่กึ่งสำเร็จรูป", TitleEN: "Buy 2 get 1 free — instant noodles", DescriptionTH: "ยอดขายบะหมี่ MAMA เพิ่ม 23% ในสัปดาห์นี้ จับคู่กับสินค้าเสริมเพื่อเพิ่มขนาดบิล", DescriptionEN: "MAMA noodle sales up 23% this week. Bundle to lift basket size", UpsideValue: scaledCurrency(1840, seed.salesScale), Confidence: 0.78, DurationTH: "1 สัปดาห์", DurationEN: "1 week", TargetTH: "ลูกค้าประจำ", TargetEN: "Repeat customers", Type: "bundle"},
+		{ID: seed.suggestionPrefix + "p3", StoreID: storeID, Kind: "promo", Icon: "trending", TitleTH: "Happy Hour 17:00 - 19:00 เครื่องดื่มเย็น", TitleEN: "Happy hour 17:00 - 19:00, cold drinks", DescriptionTH: "ช่วง 17:00-19:00 มียอดขายเครื่องดื่มต่ำกว่าค่าเฉลี่ย 18% ลด 10% เพื่อกระตุ้นทราฟฟิก", DescriptionEN: "Cold drink sales 18% below average in 17:00-19:00 window. A 10% promo could lift footfall", UpsideValue: scaledCurrency(980, seed.salesScale), Confidence: 0.65, DurationTH: "2 สัปดาห์", DurationEN: "2 weeks", TargetTH: "ลูกค้าหลังเลิกงาน", TargetEN: "After-work crowd", Type: "discount"},
+		{ID: seed.suggestionPrefix + "e1", StoreID: storeID, Kind: "event", Icon: "calendar", TitleTH: "เทศกาลวิสาขบูชา 31 พ.ค.", TitleEN: "Visakha Bucha · May 31", DescriptionTH: "วันหยุดนักขัตฤกษ์ ลูกค้าซื้อของไหว้พระและของแห้งเพิ่มขึ้น แนะนำให้สต็อกเทียน-ดอกไม้-น้ำดื่ม", DescriptionEN: "Public holiday. Customers stock up on offerings and dry goods — boost candles, flowers, water", UpsideValue: scaledCurrency(8600, seed.salesScale), Confidence: 0.88, DurationTH: "5 วัน", DurationEN: "5 days", TargetTH: "ครอบครัว", TargetEN: "Families", Type: "event"},
+		{ID: seed.suggestionPrefix + "e2", StoreID: storeID, Kind: "event", Icon: "gift", TitleTH: "วันแม่ 12 ส.ค. — กระเช้าของขวัญ", TitleEN: "Mother's Day · Aug 12 — gift baskets", DescriptionTH: "เริ่มเตรียมการแสดงสินค้ากระเช้าและของขวัญ 14 วันก่อนวันแม่ ดึงดูดลูกค้าที่กำลังมองหา", DescriptionEN: "Start gift-basket merchandising 14 days ahead to capture early shoppers", UpsideValue: scaledCurrency(14200, seed.salesScale), Confidence: 0.81, DurationTH: "3 สัปดาห์", DurationEN: "3 weeks", TargetTH: "ลูกค้าที่ต้องการของขวัญ", TargetEN: "Gift shoppers", Type: "event"},
+		{ID: seed.suggestionPrefix + "e3", StoreID: storeID, Kind: "event", Icon: "sparkle", TitleTH: "เปิดเทอม 16 พ.ค. — ของใช้นักเรียน", TitleEN: "Back to school · May 16", DescriptionTH: "ครัวเรือนใกล้สาขามีเด็กวัยเรียน ~38% เสนอจัดมุมเครื่องเขียน-นม-ขนมตอนเช้า", DescriptionEN: "~38% of households nearby have school-age kids. Set up a stationery + breakfast bundle corner", UpsideValue: scaledCurrency(6400, seed.salesScale), Confidence: 0.74, DurationTH: "4 สัปดาห์", DurationEN: "4 weeks", TargetTH: "ผู้ปกครอง", TargetEN: "Parents", Type: "event"},
 	}
 	if err := tx.Clauses(upsertByColumns([]string{"id"})).Create(&rows).Error; err != nil {
 		return fmt.Errorf("upsert suggestions: %w", err)
 	}
 
 	return nil
+}
+
+func scaledCurrency(value float64, scale float64) float64 {
+	return math.Round(value*scale*100) / 100
+}
+
+func scaledQuantity(value int, scale float64) int {
+	return int(math.Round(float64(value) * scale))
 }
 
 func upsertByColumns(columns []string) clause.OnConflict {

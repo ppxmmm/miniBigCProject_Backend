@@ -17,6 +17,9 @@ func Bootstrap(ctx context.Context, database *gorm.DB) error {
 	if err := migrateColumnTypes(ctx, database); err != nil {
 		return fmt.Errorf("migrate column types: %w", err)
 	}
+	if err := ensureConstraints(ctx, database); err != nil {
+		return fmt.Errorf("ensure dashboard constraints: %w", err)
+	}
 	if err := ensureIndexes(ctx, database); err != nil {
 		return fmt.Errorf("ensure dashboard indexes: %w", err)
 	}
@@ -44,6 +47,34 @@ func migrateColumnTypes(ctx context.Context, database *gorm.DB) error {
 	if err := database.WithContext(ctx).Exec(stmt).Error; err != nil {
 		return fmt.Errorf("alter deliveries.eta_time to time: %w", err)
 	}
+	return nil
+}
+
+func ensureConstraints(ctx context.Context, database *gorm.DB) error {
+	statements := []string{
+		`DO $$ BEGIN
+			ALTER TABLE deliveries ADD CONSTRAINT chk_deliveries_status
+				CHECK (status IN ('preparing', 'enRoute', 'delivered'));
+		EXCEPTION WHEN duplicate_object THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE suggestions ADD CONSTRAINT chk_suggestions_kind
+				CHECK (kind IN ('promo', 'event'));
+		EXCEPTION WHEN duplicate_object THEN NULL;
+		END $$`,
+		`DO $$ BEGIN
+			ALTER TABLE suggestions ADD CONSTRAINT chk_suggestions_type
+				CHECK (type IN ('markdown', 'bundle', 'discount', 'event'));
+		EXCEPTION WHEN duplicate_object THEN NULL;
+		END $$`,
+	}
+
+	for _, statement := range statements {
+		if err := database.WithContext(ctx).Exec(statement).Error; err != nil {
+			return fmt.Errorf("execute constraint statement: %w", err)
+		}
+	}
+
 	return nil
 }
 
@@ -90,6 +121,9 @@ func ensureIndexes(ctx context.Context, database *gorm.DB) error {
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_inventory_store_sku_location ON inventory_items(store_id, sku, location_code)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_expiring_store_sku_expiry_location ON expiring_inventory(store_id, sku, expiry_date, location_code)`,
 		`CREATE UNIQUE INDEX IF NOT EXISTS idx_low_stock_store_sku_location ON low_stock_alerts(store_id, sku, location_code)`,
+		`CREATE INDEX IF NOT EXISTS idx_deliveries_store_status ON deliveries(store_id, status)`,
+		`CREATE INDEX IF NOT EXISTS idx_deliveries_store_eta ON deliveries(store_id, eta_time)`,
+		`CREATE INDEX IF NOT EXISTS idx_suggestions_store_kind_type ON suggestions(store_id, kind, type)`,
 	}
 
 	for _, statement := range statements {
