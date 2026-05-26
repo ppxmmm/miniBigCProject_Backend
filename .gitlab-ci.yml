@@ -1,0 +1,111 @@
+# Mini BigC — Backend (Go)
+#
+# Unit tests: mocks only (no Postgres).
+# API tests: Playwright against a live server + Postgres service.
+# Load tests: k6 smoke (manual job).
+#
+# Runner tags: set MINIBIGC_BUILD_RUNNER_TAG if your runners use a different name.
+
+stages:
+  - test
+
+variables:
+  GO_VERSION: "1.26"
+  NODE_VERSION: "22"
+  MINIBIGC_BUILD_RUNNER_TAG: docker
+  POSTGRES_DB: test_db
+  POSTGRES_USER: admin
+  POSTGRES_PASSWORD: root
+  DB_HOST: postgres
+  DB_PORT: "5432"
+  PORT: "5001"
+  API_BASE_URL: http://127.0.0.1:5001
+
+.workflow_rules:
+  rules:
+    - if: $CI_COMMIT_BRANCH == "develop"
+    - if: $CI_COMMIT_BRANCH == "main"
+    - if: $CI_COMMIT_BRANCH == "DevOps"
+
+.postgres_service:
+  services:
+    - name: postgres:12
+      alias: postgres
+
+test:
+  stage: test
+  image: golang:${GO_VERSION}-alpine
+  extends: .workflow_rules
+  variables:
+    CGO_ENABLED: "0"
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-go-mod
+    paths:
+      - .go/pkg/mod/
+  before_script:
+    - export GOPATH="$CI_PROJECT_DIR/.go"
+    - export GOMODCACHE="$GOPATH/pkg/mod"
+    - go mod download
+  script:
+    - go build ./...
+    - go vet ./...
+    - go test ./... -count=1 -race
+
+test_api:
+  stage: test
+  image: golang:${GO_VERSION}-bookworm
+  extends:
+    - .workflow_rules
+    - .postgres_service
+  variables:
+    CGO_ENABLED: "0"
+  cache:
+    key: ${CI_COMMIT_REF_SLUG}-npm
+    paths:
+      - node_modules/
+  before_script:
+    - apt-get update && apt-get install -y curl ca-certificates gnupg
+    - curl -fsSL https://deb.nodesource.com/setup_${NODE_VERSION}.x | bash -
+    - apt-get install -y nodejs
+    - npm ci
+  script:
+    - chmod +x scripts/run-api-tests.sh
+    - ./scripts/run-api-tests.sh
+
+loadtest_smoke:
+  stage: test
+  image: golang:${GO_VERSION}-bookworm
+  extends:
+    - .workflow_rules
+    - .postgres_service
+  when: manual
+  allow_failure: true
+  variables:
+    CGO_ENABLED: "0"
+  before_script:
+    - apt-get update && apt-get install -y curl ca-certificates gnupg
+    - gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+    - echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" > /etc/apt/sources.list.d/k6.list
+    - apt-get update && apt-get install -y k6
+  script:
+    - chmod +x scripts/run-loadtest.sh
+    - ./scripts/run-loadtest.sh tests/load/smoke.js
+
+loadtest_dashboard:
+  stage: test
+  image: golang:${GO_VERSION}-bookworm
+  extends:
+    - .workflow_rules
+    - .postgres_service
+  when: manual
+  allow_failure: true
+  variables:
+    CGO_ENABLED: "0"
+  before_script:
+    - apt-get update && apt-get install -y curl ca-certificates gnupg
+    - gpg --no-default-keyring --keyring /usr/share/keyrings/k6-archive-keyring.gpg --keyserver hkp://keyserver.ubuntu.com:80 --recv-keys C5AD17C747E3415A3642D57D77C6C491D6AC1D69
+    - echo "deb [signed-by=/usr/share/keyrings/k6-archive-keyring.gpg] https://dl.k6.io/deb stable main" > /etc/apt/sources.list.d/k6.list
+    - apt-get update && apt-get install -y k6
+  script:
+    - chmod +x scripts/run-loadtest.sh
+    - ./scripts/run-loadtest.sh tests/load/dashboard.js
