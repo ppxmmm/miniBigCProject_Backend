@@ -148,11 +148,12 @@ type Delivery struct {
 	DistanceKM     float64 `json:"distance_km" gorm:"type:numeric(8,2);not null"`
 }
 
-// Suggestion contains promotion and event suggestions.
+// Suggestion contains dashboard recommendations such as promotions, events,
+// operations, inventory alerts, risks, and customer insights.
 type Suggestion struct {
 	ID            string  `json:"id" gorm:"primaryKey;size:40"`
 	StoreID       int64   `json:"store_id" gorm:"not null;index:idx_suggestions_store_kind_type"`
-	Kind          string  `json:"kind" gorm:"size:40;not null;index:idx_suggestions_store_kind_type"`
+	Kind          string  `json:"kind" gorm:"size:40;not null;check:kind IN ('promo','event','operation','inventory','risk','customer');index:idx_suggestions_store_kind_type"`
 	Icon          string  `json:"icon" gorm:"size:40;not null"`
 	TitleTH       string  `json:"title_th" gorm:"size:255;not null"`
 	TitleEN       string  `json:"title_en" gorm:"size:255;not null"`

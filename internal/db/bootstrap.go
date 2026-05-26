@@ -52,21 +52,66 @@ func migrateColumnTypes(ctx context.Context, database *gorm.DB) error {
 
 func ensureConstraints(ctx context.Context, database *gorm.DB) error {
 	statements := []string{
-		`DO $$ BEGIN
-			ALTER TABLE deliveries ADD CONSTRAINT chk_deliveries_status
-				CHECK (status IN ('preparing', 'enRoute', 'delivered'));
-		EXCEPTION WHEN duplicate_object THEN NULL;
-		END $$`,
-		`DO $$ BEGIN
-			ALTER TABLE suggestions ADD CONSTRAINT chk_suggestions_kind
-				CHECK (kind IN ('promo', 'event'));
-		EXCEPTION WHEN duplicate_object THEN NULL;
-		END $$`,
-		`DO $$ BEGIN
-			ALTER TABLE suggestions ADD CONSTRAINT chk_suggestions_type
-				CHECK (type IN ('markdown', 'bundle', 'discount', 'event'));
-		EXCEPTION WHEN duplicate_object THEN NULL;
-		END $$`,
+		`
+		ALTER TABLE deliveries
+		DROP CONSTRAINT IF EXISTS chk_deliveries_status;
+		`,
+		`
+		ALTER TABLE deliveries
+		ADD CONSTRAINT chk_deliveries_status
+		CHECK (status IN ('preparing', 'enRoute', 'delivered'));
+		`,
+
+		// Drop old suggestion kind constraints.
+		// GORM/Postgres may create this name automatically: suggestions_kind_check
+		// Your custom migration may create this name: chk_suggestions_kind
+		`
+		ALTER TABLE suggestions
+		DROP CONSTRAINT IF EXISTS chk_suggestions_kind;
+		`,
+		`
+		ALTER TABLE suggestions
+		DROP CONSTRAINT IF EXISTS suggestions_kind_check;
+		`,
+
+		// Add the new correct constraint.
+		`
+		ALTER TABLE suggestions
+		ADD CONSTRAINT chk_suggestions_kind
+		CHECK (kind IN ('promo', 'event', 'operation', 'inventory', 'risk', 'customer'));
+		`,
+
+		// Optional: fix suggestion type constraint too.
+		`
+		ALTER TABLE suggestions
+		DROP CONSTRAINT IF EXISTS chk_suggestions_type;
+		`,
+		`
+		ALTER TABLE suggestions
+		DROP CONSTRAINT IF EXISTS suggestions_type_check;
+		`,
+		`
+		ALTER TABLE suggestions
+		ADD CONSTRAINT chk_suggestions_type
+		CHECK (
+			type IN (
+				'markdown',
+				'bundle',
+				'discount',
+				'event',
+				'operation',
+				'staffing',
+				'delivery',
+				'reorder',
+				'quality',
+				'fifo',
+				'loss_prevention',
+				'local_promo',
+				'assortment',
+				'merchandising'
+			)
+		);
+		`,
 	}
 
 	for _, statement := range statements {

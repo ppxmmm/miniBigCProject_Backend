@@ -7,10 +7,11 @@ import (
 
 // Config contains runtime configuration loaded from environment variables.
 type Config struct {
-	AppName      string
-	Port         string
-	CORSOrigins  string
-	DB           DBConfig
+	AppName     string
+	Port        string
+	CORSOrigins string
+	DB          DBConfig
+	AI          AIConfig
 }
 
 // DBConfig contains database connection settings.
@@ -20,6 +21,12 @@ type DBConfig struct {
 	Host     string
 	Port     string
 	Name     string
+}
+
+// AIConfig contains Gemini API settings.
+type AIConfig struct {
+	GeminiAPIKey string
+	GeminiModel  string
 }
 
 // Env returns an environment variable or the provided fallback.
@@ -47,6 +54,10 @@ func LoadConfig() Config {
 			Host:     Env("DB_HOST", "localhost"),
 			Port:     Env("DB_PORT", "5433"),
 			Name:     Env("DB_NAME", "test_db"),
+		},
+		AI: AIConfig{
+			GeminiAPIKey: Env("GEMINI_API_KEY", ""),
+			GeminiModel:  Env("GEMINI_MODEL", "gemini-2.5-flash"),
 		},
 	}
 }
