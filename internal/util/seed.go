@@ -178,6 +178,26 @@ func seedProducts(tx *gorm.DB, categoryIDs map[string]int64) error {
 		{SKU: "FB-0188", NameTH: "น้ำพริกแม่ประนอม", NameEN: "Mae Pranom chilli paste", CategoryID: categoryIDs["Food"]},
 		{SKU: "PC-0470", NameTH: "ผ้าอนามัยลอริเอะ ขนาดกลาง", NameEN: "Laurier sanitary pads M", CategoryID: categoryIDs["Personal"]},
 		{SKU: "HH-2201", NameTH: "กระดาษทิชชู่ Cellox 12 ม้วน", NameEN: "Cellox tissue × 12", CategoryID: categoryIDs["Household Items"]},
+		{SKU: "FB-1107", NameTH: "ข้าวกล่องหมูทอดกระเทียม", NameEN: "Garlic pork ready meal", CategoryID: categoryIDs["Food & Beverage"]},
+		{SKU: "FB-3201", NameTH: "แซนด์วิชทูน่าพร้อมทาน", NameEN: "Ready-to-eat tuna sandwich", CategoryID: categoryIDs["Food & Beverage"]},
+		{SKU: "FB-7730", NameTH: "ซาลาเปาหมูแดง", NameEN: "BBQ pork steamed bun", CategoryID: categoryIDs["Food & Beverage"]},
+		{SKU: "FB-8842", NameTH: "ขนมจีบหมูพร้อมทาน", NameEN: "Ready-to-eat pork shumai", CategoryID: categoryIDs["Food & Beverage"]},
+		{SKU: "PC-0150", NameTH: "ถ่านอัลคาไลน์ AAA 4 ก้อน", NameEN: "AAA alkaline batteries × 4", CategoryID: categoryIDs["Household Items"]},
+		{SKU: "PC-2219", NameTH: "ลูกอมฮอลล์ รสน้ำผึ้งมะนาว", NameEN: "Halls honey lemon candy", CategoryID: categoryIDs["Snacks"]},
+		{SKU: "PC-4502", NameTH: "หมากฝรั่งเดนทีน ไวท์", NameEN: "Dentyne White gum", CategoryID: categoryIDs["Snacks"]},
+		{SKU: "PC-7811", NameTH: "ทิชชู่เปียกพกพา 20 แผ่น", NameEN: "Pocket wet wipes 20 sheets", CategoryID: categoryIDs["Personal"]},
+		{SKU: "HH-0091", NameTH: "น้ำยาล้างห้องน้ำ วิคตอเรีย", NameEN: "Bathroom cleaner", CategoryID: categoryIDs["Household Items"]},
+		{SKU: "HH-4308", NameTH: "น้ำยาซักผ้าชนิดน้ำ 900 มล.", NameEN: "Liquid laundry detergent 900ml", CategoryID: categoryIDs["Household Items"]},
+		{SKU: "HH-7204", NameTH: "แผ่นทำความสะอาดพื้น", NameEN: "Floor cleaning sheets", CategoryID: categoryIDs["Household Items"]},
+		{SKU: "PB-1008", NameTH: "โลชั่นวาสลีน 250 มล.", NameEN: "Vaseline lotion 250ml", CategoryID: categoryIDs["Personal Care"]},
+		{SKU: "PB-2113", NameTH: "ครีมอาบน้ำโดฟ 450 มล.", NameEN: "Dove body wash 450ml", CategoryID: categoryIDs["Personal Care"]},
+		{SKU: "PB-3902", NameTH: "แป้งเด็กแคร์ 180 ก.", NameEN: "Care baby powder 180g", CategoryID: categoryIDs["Personal Care"]},
+		{SKU: "FR-0110", NameTH: "ข้าวเหนียวหมูปิ้งพร้อมทาน", NameEN: "Grilled pork sticky rice", CategoryID: categoryIDs["Food & Beverage"]},
+		{SKU: "FR-0298", NameTH: "สลัดอกไก่พร้อมทาน", NameEN: "Chicken breast salad", CategoryID: categoryIDs["Food & Beverage"]},
+		{SKU: "FR-3007", NameTH: "ครัวซองต์แฮมชีส", NameEN: "Ham cheese croissant", CategoryID: categoryIDs["Food & Beverage"]},
+		{SKU: "DR-0044", NameTH: "น้ำดื่มคริสตัล 1.5 ลิตร", NameEN: "Crystal water 1.5L", CategoryID: categoryIDs["Beverage"]},
+		{SKU: "DR-0188", NameTH: "กาแฟเย็นพร้อมดื่ม 220 มล.", NameEN: "Ready-to-drink iced coffee 220ml", CategoryID: categoryIDs["Beverage"]},
+		{SKU: "DR-7120", NameTH: "ชาไทยพร้อมดื่ม 250 มล.", NameEN: "Ready-to-drink Thai tea 250ml", CategoryID: categoryIDs["Beverage"]},
 
 		// Food
 		{SKU: "FB-3301", NameTH: "มาม่า รสต้มยำกุ้ง 55 ก.", NameEN: "MAMA Tom Yum Kung 55g", CategoryID: categoryIDs["Food"]},
@@ -470,13 +490,45 @@ func seedPaymentMix(tx *gorm.DB, _ mockStoreSeed, storeID int64, today time.Time
 
 func seedTopProducts(tx *gorm.DB, seed mockStoreSeed, storeID int64, today time.Time, _ map[string]int64, _ map[string]int64) error {
 	rows := []model.TopProductEntity{
+		// Food & Beverage
 		{StoreID: storeID, SKU: "FB-0102", SalesDate: today, SoldQuantity: scaledQuantity(184, seed.salesScale), SalesValue: scaledCurrency(9568, seed.salesScale), TrendPercent: 12},
 		{StoreID: storeID, SKU: "FB-2284", SalesDate: today, SoldQuantity: scaledQuantity(162, seed.salesScale), SalesValue: scaledCurrency(4374, seed.salesScale), TrendPercent: 8},
 		{StoreID: storeID, SKU: "FB-0411", SalesDate: today, SoldQuantity: scaledQuantity(148, seed.salesScale), SalesValue: scaledCurrency(2516, seed.salesScale), TrendPercent: 5},
 		{StoreID: storeID, SKU: "FB-0099", SalesDate: today, SoldQuantity: scaledQuantity(121, seed.salesScale), SalesValue: scaledCurrency(8470, seed.salesScale), TrendPercent: -2},
+		{StoreID: storeID, SKU: "FB-1107", SalesDate: today, SoldQuantity: scaledQuantity(139, seed.salesScale), SalesValue: scaledCurrency(4865, seed.salesScale), TrendPercent: 9},
+		{StoreID: storeID, SKU: "FB-3201", SalesDate: today, SoldQuantity: scaledQuantity(116, seed.salesScale), SalesValue: scaledCurrency(5800, seed.salesScale), TrendPercent: 4},
+		{StoreID: storeID, SKU: "FB-7730", SalesDate: today, SoldQuantity: scaledQuantity(104, seed.salesScale), SalesValue: scaledCurrency(3120, seed.salesScale), TrendPercent: -6},
+		{StoreID: storeID, SKU: "FB-8842", SalesDate: today, SoldQuantity: scaledQuantity(98, seed.salesScale), SalesValue: scaledCurrency(4410, seed.salesScale), TrendPercent: 7},
+
+		// Packaged / Consumer Products
 		{StoreID: storeID, SKU: "PC-0331", SalesDate: today, SoldQuantity: scaledQuantity(96, seed.salesScale), SalesValue: scaledCurrency(11520, seed.salesScale), TrendPercent: 18},
+		{StoreID: storeID, SKU: "PC-0150", SalesDate: today, SoldQuantity: scaledQuantity(91, seed.salesScale), SalesValue: scaledCurrency(4095, seed.salesScale), TrendPercent: 6},
+		{StoreID: storeID, SKU: "PC-2219", SalesDate: today, SoldQuantity: scaledQuantity(84, seed.salesScale), SalesValue: scaledCurrency(7560, seed.salesScale), TrendPercent: 11},
+		{StoreID: storeID, SKU: "PC-4502", SalesDate: today, SoldQuantity: scaledQuantity(76, seed.salesScale), SalesValue: scaledCurrency(6080, seed.salesScale), TrendPercent: -3},
+		{StoreID: storeID, SKU: "PC-7811", SalesDate: today, SoldQuantity: scaledQuantity(69, seed.salesScale), SalesValue: scaledCurrency(5520, seed.salesScale), TrendPercent: 2},
+
+		// Household
 		{StoreID: storeID, SKU: "HH-1820", SalesDate: today, SoldQuantity: scaledQuantity(88, seed.salesScale), SalesValue: scaledCurrency(7392, seed.salesScale), TrendPercent: 3},
+		{StoreID: storeID, SKU: "HH-0091", SalesDate: today, SoldQuantity: scaledQuantity(73, seed.salesScale), SalesValue: scaledCurrency(6570, seed.salesScale), TrendPercent: 5},
+		{StoreID: storeID, SKU: "HH-4308", SalesDate: today, SoldQuantity: scaledQuantity(61, seed.salesScale), SalesValue: scaledCurrency(5490, seed.salesScale), TrendPercent: -4},
+		{StoreID: storeID, SKU: "HH-7204", SalesDate: today, SoldQuantity: scaledQuantity(54, seed.salesScale), SalesValue: scaledCurrency(4860, seed.salesScale), TrendPercent: 1},
+
+		// Personal Care
+		{StoreID: storeID, SKU: "PB-1008", SalesDate: today, SoldQuantity: scaledQuantity(82, seed.salesScale), SalesValue: scaledCurrency(9020, seed.salesScale), TrendPercent: 14},
+		{StoreID: storeID, SKU: "PB-2113", SalesDate: today, SoldQuantity: scaledQuantity(74, seed.salesScale), SalesValue: scaledCurrency(7770, seed.salesScale), TrendPercent: 10},
+		{StoreID: storeID, SKU: "PB-3902", SalesDate: today, SoldQuantity: scaledQuantity(58, seed.salesScale), SalesValue: scaledCurrency(6670, seed.salesScale), TrendPercent: -1},
+
+		// Fresh / Ready-to-eat
+		{StoreID: storeID, SKU: "FR-0110", SalesDate: today, SoldQuantity: scaledQuantity(128, seed.salesScale), SalesValue: scaledCurrency(3840, seed.salesScale), TrendPercent: 15},
+		{StoreID: storeID, SKU: "FR-0298", SalesDate: today, SoldQuantity: scaledQuantity(112, seed.salesScale), SalesValue: scaledCurrency(5040, seed.salesScale), TrendPercent: 9},
+		{StoreID: storeID, SKU: "FR-3007", SalesDate: today, SoldQuantity: scaledQuantity(93, seed.salesScale), SalesValue: scaledCurrency(4185, seed.salesScale), TrendPercent: -5},
+
+		// Drinks
+		{StoreID: storeID, SKU: "DR-0044", SalesDate: today, SoldQuantity: scaledQuantity(157, seed.salesScale), SalesValue: scaledCurrency(4710, seed.salesScale), TrendPercent: 13},
+		{StoreID: storeID, SKU: "DR-0188", SalesDate: today, SoldQuantity: scaledQuantity(143, seed.salesScale), SalesValue: scaledCurrency(5005, seed.salesScale), TrendPercent: 6},
+		{StoreID: storeID, SKU: "DR-7120", SalesDate: today, SoldQuantity: scaledQuantity(97, seed.salesScale), SalesValue: scaledCurrency(3395, seed.salesScale), TrendPercent: -8},
 	}
+
 	if err := tx.Clauses(upsertByColumns([]string{"store_id", "sku", "sales_date"})).Create(&rows).Error; err != nil {
 		return fmt.Errorf("upsert top products: %w", err)
 	}
