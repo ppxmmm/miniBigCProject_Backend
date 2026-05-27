@@ -1,0 +1,8 @@
+.env
+.DS_Store
+.gocache/
+node_modules/
+mcp_server/venv/
+test-results/
+playwright-report/
+playwright/.cache/

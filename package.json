@@ -1,0 +1,12 @@
+{
+  "name": "minibigc-backend-tests",
+  "private": true,
+  "scripts": {
+    "test:api": "playwright test",
+    "test:api:ui": "playwright test --ui"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0",
+    "@types/node": "^20"
+  }
+}
