@@ -3,8 +3,12 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
+
+	"google.golang.org/genai"
 )
 
 func TestAIServiceMissingGeminiAPIKey(t *testing.T) {
@@ -14,6 +18,277 @@ func TestAIServiceMissingGeminiAPIKey(t *testing.T) {
 	_, err := service.AskGemini(context.Background(), "question", "context", RoleAccess{})
 	if !errors.Is(err, ErrMissingGeminiAPIKey) {
 		t.Fatalf("error = %v, want %v", err, ErrMissingGeminiAPIKey)
+	}
+}
+
+func TestAIServiceOperationContextIgnoresParentCancellation(t *testing.T) {
+	t.Parallel()
+
+	parent, cancelParent := context.WithCancel(context.Background())
+	cancelParent()
+
+	service := &geminiAIService{timeout: time.Minute}
+	ctx, cancel := service.operationContext(parent)
+	defer cancel()
+
+	select {
+	case <-ctx.Done():
+		t.Fatalf("operation context should not inherit parent cancellation: %v", ctx.Err())
+	default:
+	}
+	if _, ok := ctx.Deadline(); !ok {
+		t.Fatal("operation context missing deadline")
+	}
+}
+
+func TestWrapGeminiErrorClassifiesContextErrors(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want error
+	}{
+		{name: "deadline", err: context.DeadlineExceeded, want: ErrAIRequestTimeout},
+		{name: "canceled", err: context.Canceled, want: ErrAIRequestCanceled},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			err := wrapGeminiError("generate Gemini content", test.err)
+			if !errors.Is(err, test.want) {
+				t.Fatalf("error = %v, want %v", err, test.want)
+			}
+		})
+	}
+}
+
+func TestIsTransientGeminiError(t *testing.T) {
+	t.Parallel()
+
+	err := genai.APIError{Code: 503, Status: "UNAVAILABLE", Message: "high demand"}
+	if !isTransientGeminiError(err) {
+		t.Fatal("503 UNAVAILABLE should be transient")
+	}
+	if isTransientGeminiError(errors.New("invalid api key")) {
+		t.Fatal("auth errors should not be transient")
+	}
+}
+
+func TestIsQuotaExceededError(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{
+			name: "api status resource exhausted",
+			err:  genai.APIError{Code: 429, Status: "RESOURCE_EXHAUSTED", Message: "quota exceeded"},
+			want: true,
+		},
+		{
+			name: "wrapped api status resource exhausted",
+			err:  fmt.Errorf("generate content: %w", genai.APIError{Code: 429, Status: "RESOURCE_EXHAUSTED"}),
+			want: true,
+		},
+		{
+			name: "message mentions tokens",
+			err:  errors.New("input token limit exceeded"),
+			want: true,
+		},
+		{
+			name: "ordinary service error",
+			err:  errors.New("temporary upstream failure"),
+			want: false,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			if got := isQuotaExceededError(test.err); got != test.want {
+				t.Fatalf("isQuotaExceededError() = %v, want %v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestModelContentWithFunctionCallsPreservesThoughtSignature(t *testing.T) {
+	t.Parallel()
+
+	signature := []byte("signed-thought")
+	response := &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{
+			{
+				Content: &genai.Content{
+					Role: string(genai.RoleModel),
+					Parts: []*genai.Part{
+						{
+							Thought:          true,
+							ThoughtSignature: signature,
+							Text:             "private reasoning",
+						},
+						{
+							FunctionCall: &genai.FunctionCall{
+								ID:   "call-1",
+								Name: "get_store_data",
+								Args: map[string]any{"store_id": float64(1), "endpoint": "suggestions"},
+							},
+							ThoughtSignature: signature,
+						},
+					},
+				},
+			},
+		},
+	}
+
+	content := modelContentWithFunctionCalls(response)
+	if content == nil {
+		t.Fatal("modelContentWithFunctionCalls() returned nil")
+	}
+	if content.Role != string(genai.RoleModel) {
+		t.Fatalf("role = %q, want %q", content.Role, genai.RoleModel)
+	}
+	if len(content.Parts) != 2 {
+		t.Fatalf("parts length = %d, want 2", len(content.Parts))
+	}
+	if string(content.Parts[0].ThoughtSignature) != string(signature) {
+		t.Fatalf("thought signature was not preserved")
+	}
+	if string(content.Parts[1].ThoughtSignature) != string(signature) {
+		t.Fatalf("function call thought signature was not preserved")
+	}
+}
+
+func TestNewFunctionResponsePartPreservesFunctionCallID(t *testing.T) {
+	t.Parallel()
+
+	part := newFunctionResponsePart(
+		&genai.FunctionCall{ID: "call-1", Name: "get_store_data"},
+		map[string]any{"ok": true},
+	)
+
+	if part.FunctionResponse == nil {
+		t.Fatal("FunctionResponse is nil")
+	}
+	if part.FunctionResponse.ID != "call-1" {
+		t.Fatalf("id = %q, want call-1", part.FunctionResponse.ID)
+	}
+	if part.FunctionResponse.Name != "get_store_data" {
+		t.Fatalf("name = %q, want get_store_data", part.FunctionResponse.Name)
+	}
+	if part.FunctionResponse.Response["ok"] != true {
+		t.Fatalf("response = %#v, want ok=true", part.FunctionResponse.Response)
+	}
+}
+
+func TestCollectResponseTextSkipsThoughtAndFunctionParts(t *testing.T) {
+	t.Parallel()
+
+	response := &genai.GenerateContentResponse{
+		Candidates: []*genai.Candidate{
+			{
+				Content: &genai.Content{
+					Parts: []*genai.Part{
+						{Thought: true, Text: "private reasoning"},
+						{Text: "public answer"},
+					},
+				},
+			},
+		},
+	}
+
+	got := collectResponseText(response)
+	if got != "public answer" {
+		t.Fatalf("collectResponseText() = %q, want public answer", got)
+	}
+}
+
+func TestSystemInstructionForMode(t *testing.T) {
+	t.Parallel()
+
+	if strings.Contains(systemInstructionForMode(false), "Call the most relevant available MCP tool") {
+		t.Fatal("prefetch-only instruction should not ask Gemini to call tools")
+	}
+	for _, want := range []string{
+		"Call the most relevant available MCP tool",
+		"must call at least one MCP tool",
+	} {
+		if !strings.Contains(systemInstructionForMode(true), want) {
+			t.Fatalf("tool-calling instruction missing %q", want)
+		}
+	}
+}
+
+func TestExtractGeminiReply(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name      string
+		response  *genai.GenerateContentResponse
+		wantReply string
+		wantErr   error
+	}{
+		{
+			name: "text reply",
+			response: &genai.GenerateContentResponse{
+				Candidates: []*genai.Candidate{
+					{
+						Content: &genai.Content{
+							Parts: []*genai.Part{{Text: "  answer  "}},
+						},
+					},
+				},
+			},
+			wantReply: "answer",
+		},
+		{
+			name: "unresolved function call",
+			response: &genai.GenerateContentResponse{
+				Candidates: []*genai.Candidate{
+					{
+						Content: &genai.Content{
+							Parts: []*genai.Part{
+								{
+									FunctionCall: &genai.FunctionCall{
+										Name: "get_store_data",
+										Args: map[string]any{"store_id": float64(1)},
+									},
+								},
+							},
+						},
+					},
+				},
+			},
+			wantErr: ErrUnresolvedGeminiFunctionCalls,
+		},
+		{
+			name:     "empty response",
+			response: &genai.GenerateContentResponse{},
+			wantErr:  ErrEmptyAIResponse,
+		},
+	}
+
+	for _, test := range tests {
+		test := test
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+
+			got, err := extractGeminiReply(test.response)
+			if !errors.Is(err, test.wantErr) {
+				t.Fatalf("error = %v, want %v", err, test.wantErr)
+			}
+			if got != test.wantReply {
+				t.Fatalf("reply = %q, want %q", got, test.wantReply)
+			}
+		})
 	}
 }
 
@@ -127,7 +402,7 @@ func TestSystemInstructionRequiresMCPForDataQuestions(t *testing.T) {
 	t.Parallel()
 
 	for _, want := range []string{
-		"decide for yourself what data is needed",
+		"must call at least one MCP tool",
 		"website data catalog",
 		"Call the most relevant available MCP tool",
 		"authorized numeric MCP store_id",
@@ -138,41 +413,6 @@ func TestSystemInstructionRequiresMCPForDataQuestions(t *testing.T) {
 	} {
 		if !strings.Contains(systemInstruction, want) {
 			t.Fatalf("systemInstruction missing %q", want)
-		}
-	}
-}
-
-func TestBuildDashboardFallbackReplyImprovementQuestion(t *testing.T) {
-	t.Parallel()
-
-	context := `Dashboard data scope:
-- Role: manager
-
-Sales summary:
-- MTD sales: THB 900.00, dashboard target/comparison line THB 1200.00, gap THB -300.00 (-25.0%). In the website, MTD target means the backend daily comparison series.
-- Top categories: Food THB 700.00 share 70.0% trend -4.0%
-
-Order summary:
-- Delivery orders: 4, total order value THB 1000.00, late orders 1
-
-Inventory and low-stock summary:
-- Inventory items visible: 10
-- Low-stock alerts: Milk stock 2 reorder 20
-
-Promotion and event summary:
-- promo: Markdown bread; upside THB 250.00; confidence 80%; duration 1 day`
-
-	reply := buildDashboardFallbackReply("ควรปรับปรุงอะไรสำหรับเดือนนี้", context)
-
-	for _, want := range []string{
-		"สรุปคือเดือนนี้ควรโฟกัส 3 เรื่องค่ะ",
-		"กู้ยอดขายจากช่องว่าง MTD",
-		"THB -300.00",
-		"Milk stock 2 reorder 20",
-		"Markdown bread",
-	} {
-		if !strings.Contains(reply, want) {
-			t.Fatalf("fallback reply missing %q:\n%s", want, reply)
 		}
 	}
 }

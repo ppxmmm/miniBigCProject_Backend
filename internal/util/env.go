@@ -30,6 +30,7 @@ type DBConfig struct {
 type AIConfig struct {
 	GeminiAPIKey string
 	GeminiModel  string
+	Timeout      time.Duration
 	MCP          MCPConfig
 }
 
@@ -58,13 +59,17 @@ func LoadConfig() Config {
 	if err != nil || mcpTimeoutSeconds <= 0 {
 		mcpTimeoutSeconds = 10
 	}
+	aiTimeoutSeconds, err := strconv.Atoi(Env("AI_TIMEOUT_SECONDS", "90"))
+	if err != nil || aiTimeoutSeconds <= 0 {
+		aiTimeoutSeconds = 90
+	}
 
 	return Config{
 		AppName: Env("APP_NAME", "Mini BigC API"),
 		Port:    Env("PORT", "5001"),
 		CORSOrigins: Env(
 			"CORS_ORIGINS",
-			"http://localhost:3000,http://localhost:3001,http://127.0.0.1:3000",
+			"http://localhost:3000,http://localhost:3001,http://localhost:5173,http://127.0.0.1:3000,http://127.0.0.1:5173",
 		),
 		DB: DBConfig{
 			User:     Env("DB_USER", "admin"),
@@ -76,6 +81,7 @@ func LoadConfig() Config {
 		AI: AIConfig{
 			GeminiAPIKey: Env("GEMINI_API_KEY", ""),
 			GeminiModel:  Env("GEMINI_MODEL", "gemini-2.5-flash"),
+			Timeout:      time.Duration(aiTimeoutSeconds) * time.Second,
 			MCP: MCPConfig{
 				Enabled:        strings.ToLower(Env("MCP_ENABLED", "true")) != "false",
 				Command:        Env("MCP_SERVER_COMMAND", "mcp_server/venv/bin/python"),
