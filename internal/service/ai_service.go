@@ -28,6 +28,9 @@ var ErrAIRequestCanceled = errors.New("AI request canceled")
 // ErrAIRequestTimeout is returned when the AI operation exceeds its timeout.
 var ErrAIRequestTimeout = errors.New("AI request timed out")
 
+// ErrUnauthorizedManagerData is returned when a staff role asks for manager-only data.
+var ErrUnauthorizedManagerData = errors.New("manager-only data is not authorized for this role")
+
 const defaultAITimeout = 90 * time.Second
 
 // Gemini function-calling is currently fragile (API now requires thought_signature for tool calls).
@@ -77,6 +80,10 @@ func NewAIServiceWithMCPAndTimeout(apiKey string, model string, mcpClient MCPToo
 }
 
 func (service *geminiAIService) AskGemini(ctx context.Context, question string, dashboardContext string, access RoleAccess) (string, error) {
+	if err := validateAIQuestionAuthorization(access, question); err != nil {
+		return "", err
+	}
+
 	if service.apiKey == "" {
 		return "", ErrMissingGeminiAPIKey
 	}
@@ -308,8 +315,9 @@ func (service *geminiAIService) prefetchMCPEvidence(ctx context.Context, questio
 }
 
 func selectMCPPrefetchRequests(question string, access RoleAccess) []mcpPrefetchRequest {
-	requests := []mcpPrefetchRequest{
-		{Name: "get_store_dashboard", Args: map[string]any{"store_id": access.DashboardStoreID}},
+	requests := make([]mcpPrefetchRequest, 0, 5)
+	if access.CanViewManagerData {
+		requests = append(requests, mcpPrefetchRequest{Name: "get_store_dashboard", Args: map[string]any{"store_id": access.DashboardStoreID}})
 	}
 
 	lower := strings.ToLower(question)
@@ -323,7 +331,7 @@ func selectMCPPrefetchRequests(question string, access RoleAccess) []mcpPrefetch
 		requests = append(requests, mcpPrefetchRequest{Name: name, Args: args})
 	}
 
-	if containsAny(lower, "ยอดขาย", "sales", "mtd", "month", "revenue", "target", "เป้า", "ต่ำกว่า", "why", "ปรับปรุง", "เดือนนี้", "recovery") {
+	if access.CanViewManagerData && containsAny(lower, "ยอดขาย", "sales", "mtd", "month", "revenue", "target", "เป้า", "ต่ำกว่า", "why", "ปรับปรุง", "เดือนนี้", "recovery") {
 		add("get_store_data", map[string]any{"store_id": access.DashboardStoreID, "endpoint": "sales/daily"})
 		add("get_store_data", map[string]any{"store_id": access.DashboardStoreID, "endpoint": "category-sales"})
 		add("get_store_data", map[string]any{"store_id": access.DashboardStoreID, "endpoint": "top-products"})
@@ -336,7 +344,7 @@ func selectMCPPrefetchRequests(question string, access RoleAccess) []mcpPrefetch
 	if containsAny(lower, "delivery", "deliveries", "order", "ออเดอร์", "ส่ง", "late", "otif") {
 		add("get_store_data", map[string]any{"store_id": access.DashboardStoreID, "endpoint": "deliveries"})
 	}
-	if containsAny(lower, "payment", "จ่าย", "qr", "cash", "card", "wallet") {
+	if access.CanViewManagerData && containsAny(lower, "payment", "จ่าย", "qr", "cash", "card", "wallet") {
 		add("get_store_data", map[string]any{"store_id": access.DashboardStoreID, "endpoint": "payment-mix"})
 	}
 	if containsAny(lower, "suggest", "recommend", "recommendation", "แนะนำ", "โปร", "promotion", "กิจกรรม") && access.CanViewManagerData {
@@ -713,6 +721,42 @@ func accessAllowsStoreEndpoint(access RoleAccess, endpoint string) bool {
 	default:
 		return false
 	}
+}
+
+func validateAIQuestionAuthorization(access RoleAccess, question string) error {
+	if access.CanViewManagerData {
+		return nil
+	}
+	if questionRequiresManagerData(question) {
+		return ErrUnauthorizedManagerData
+	}
+	return nil
+}
+
+func questionRequiresManagerData(question string) bool {
+	lower := strings.ToLower(question)
+	return containsAny(lower,
+		"revenue",
+		"ยอดขาย",
+		"sales",
+		"mtd",
+		"ytd",
+		"target",
+		"เป้า",
+		"payment mix",
+		"payment",
+		"cash",
+		"card",
+		"wallet",
+		"category sales",
+		"category-sales",
+		"top products",
+		"top-products",
+		"suggestion",
+		"recommendation",
+		"promotion",
+		"promo",
+	)
 }
 
 func numericArgumentToInt64(value any) (int64, bool) {

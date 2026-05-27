@@ -89,6 +89,8 @@ func writeAIError(w http.ResponseWriter, err error) {
 	switch {
 	case errors.Is(err, service.ErrForbiddenRole):
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "role is not allowed to access this store"})
+	case errors.Is(err, service.ErrUnauthorizedManagerData):
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "manager-only data is not authorized for this role"})
 	case errors.Is(err, service.ErrStoreAccessNotFound):
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "store access not found"})
 	case errors.Is(err, service.ErrMissingGeminiAPIKey):

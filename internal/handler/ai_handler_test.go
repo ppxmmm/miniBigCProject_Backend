@@ -170,6 +170,35 @@ func TestAIHandlerChatUsesRoleHeaderFallback(t *testing.T) {
 	}
 }
 
+func TestAIHandlerChatRejectsStaffManagerOnlyQuestions(t *testing.T) {
+	t.Parallel()
+
+	contextService := &fakeDashboardContextService{context: "restricted context"}
+	handler := NewAIHandler(
+		&fakeRoleStoreAccessService{access: service.RoleAccess{Role: "staff", StoreAccessID: "store_001", DashboardStoreID: 1}},
+		contextService,
+		service.NewAIService("", ""),
+	)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/ai/chat",
+		strings.NewReader(`{"message":"What is the revenue today?","role":"staff"}`),
+	)
+	recorder := httptest.NewRecorder()
+
+	handler.Chat(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusForbidden, recorder.Body.String())
+	}
+	if got := recorder.Body.String(); !strings.Contains(got, "manager-only data") {
+		t.Fatalf("body = %q, want manager-only authorization error", got)
+	}
+	if contextService.gotRole != "staff" {
+		t.Fatalf("role = %q, want staff", contextService.gotRole)
+	}
+}
+
 func TestAIHandlerChatErrors(t *testing.T) {
 	t.Parallel()
 

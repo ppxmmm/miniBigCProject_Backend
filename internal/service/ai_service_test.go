@@ -21,6 +21,21 @@ func TestAIServiceMissingGeminiAPIKey(t *testing.T) {
 	}
 }
 
+func TestAIServiceRejectsUnauthorizedManagerQuestionsForStaff(t *testing.T) {
+	t.Parallel()
+
+	service := NewAIService("", "")
+	_, err := service.AskGemini(
+		context.Background(),
+		"What is the revenue today?",
+		"context",
+		RoleAccess{Role: "staff", StoreAccessID: "store_001", DashboardStoreID: 1},
+	)
+	if !errors.Is(err, ErrUnauthorizedManagerData) {
+		t.Fatalf("error = %v, want %v", err, ErrUnauthorizedManagerData)
+	}
+}
+
 func TestAIServiceOperationContextIgnoresParentCancellation(t *testing.T) {
 	t.Parallel()
 
