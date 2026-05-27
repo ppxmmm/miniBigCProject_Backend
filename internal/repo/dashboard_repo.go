@@ -132,7 +132,11 @@ func (repo *gormDashboardRepository) loadPaymentMix(ctx context.Context, storeID
 		Table("payment_mix pm").
 		Select("pm.id, pm.store_id, pm.sales_date, pm.payment_method_id, p.name_th, p.name_en, pm.share").
 		Joins("JOIN payment_methods p ON p.id = pm.payment_method_id").
-		Where("pm.store_id = ?", storeID).
+		Where(
+			"pm.store_id = ? AND pm.sales_date = (SELECT MAX(pm2.sales_date) FROM payment_mix pm2 WHERE pm2.store_id = ?)",
+			storeID,
+			storeID,
+		).
 		Order("pm.share DESC").
 		Scan(&data.PaymentMix).Error
 	if err != nil {

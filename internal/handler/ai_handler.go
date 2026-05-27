@@ -41,6 +41,9 @@ func (handler *AIHandler) Chat(w http.ResponseWriter, r *http.Request) {
 
 	request.Message = strings.TrimSpace(request.Message)
 	request.Role = strings.TrimSpace(request.Role)
+	if request.Role == "" {
+		request.Role = roleFromAIRequestHeader(r)
+	}
 	if request.Message == "" {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "message is required"})
 		return
@@ -71,6 +74,15 @@ func (handler *AIHandler) Chat(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, model.AIChatResponse{Reply: reply})
 }
 
+func roleFromAIRequestHeader(r *http.Request) string {
+	for _, header := range []string{"X-User-Role", "X-Frontend-Role", "X-Role"} {
+		if role := strings.TrimSpace(r.Header.Get(header)); role != "" {
+			return role
+		}
+	}
+	return ""
+}
+
 func writeAIError(w http.ResponseWriter, err error) {
 	log.Printf("AI request failed: %v", err)
 
@@ -81,6 +93,14 @@ func writeAIError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "store access not found"})
 	case errors.Is(err, service.ErrMissingGeminiAPIKey):
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "GEMINI_API_KEY is not configured"})
+	case errors.Is(err, service.ErrEmptyAIResponse):
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "AI response is empty"})
+	case errors.Is(err, service.ErrUnresolvedGeminiFunctionCalls):
+		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "Gemini function calls were not resolved"})
+	case errors.Is(err, service.ErrAIRequestTimeout):
+		writeJSON(w, http.StatusGatewayTimeout, map[string]string{"error": "AI request timed out"})
+	case errors.Is(err, service.ErrAIRequestCanceled):
+		writeJSON(w, http.StatusRequestTimeout, map[string]string{"error": "AI request canceled"})
 	default:
 		writeJSON(w, http.StatusBadGateway, map[string]string{"error": "AI service unavailable"})
 	}

@@ -143,6 +143,33 @@ func TestAIHandlerChatSuccess(t *testing.T) {
 	}
 }
 
+func TestAIHandlerChatUsesRoleHeaderFallback(t *testing.T) {
+	t.Parallel()
+
+	contextService := &fakeDashboardContextService{context: "sales summary only"}
+	handler := NewAIHandler(
+		&fakeRoleStoreAccessService{access: service.RoleAccess{Role: "manager", StoreAccessID: "store_001", DashboardStoreID: 1, CanViewManagerData: true}},
+		contextService,
+		&fakeAIService{reply: "reply"},
+	)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/ai/chat",
+		strings.NewReader(`{"message":"How are sales?"}`),
+	)
+	request.Header.Set("X-Frontend-Role", "manager")
+	recorder := httptest.NewRecorder()
+
+	handler.Chat(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if contextService.gotRole != "manager" {
+		t.Fatalf("role = %q, want manager", contextService.gotRole)
+	}
+}
+
 func TestAIHandlerChatErrors(t *testing.T) {
 	t.Parallel()
 
@@ -171,6 +198,30 @@ func TestAIHandlerChatErrors(t *testing.T) {
 			aiErr:      service.ErrMissingGeminiAPIKey,
 			wantStatus: http.StatusInternalServerError,
 			wantBody:   "{\"error\":\"GEMINI_API_KEY is not configured\"}\n",
+		},
+		{
+			name:       "empty AI response",
+			aiErr:      service.ErrEmptyAIResponse,
+			wantStatus: http.StatusBadGateway,
+			wantBody:   "{\"error\":\"AI response is empty\"}\n",
+		},
+		{
+			name:       "unresolved Gemini function calls",
+			aiErr:      service.ErrUnresolvedGeminiFunctionCalls,
+			wantStatus: http.StatusBadGateway,
+			wantBody:   "{\"error\":\"Gemini function calls were not resolved\"}\n",
+		},
+		{
+			name:       "AI request timeout",
+			aiErr:      service.ErrAIRequestTimeout,
+			wantStatus: http.StatusGatewayTimeout,
+			wantBody:   "{\"error\":\"AI request timed out\"}\n",
+		},
+		{
+			name:       "AI request canceled",
+			aiErr:      service.ErrAIRequestCanceled,
+			wantStatus: http.StatusRequestTimeout,
+			wantBody:   "{\"error\":\"AI request canceled\"}\n",
 		},
 	}
 

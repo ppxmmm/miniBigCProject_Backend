@@ -29,7 +29,7 @@ func New(appName string, database *gorm.DB, config util.Config) http.Handler {
 			config.AI.MCP.Timeout,
 		)
 	}
-	aiService := service.NewAIServiceWithMCP(config.AI.GeminiAPIKey, config.AI.GeminiModel, mcpClient)
+	aiService := service.NewAIServiceWithMCPAndTimeout(config.AI.GeminiAPIKey, config.AI.GeminiModel, mcpClient, config.AI.Timeout)
 	aiHandler := handler.NewAIHandler(accessService, dashboardContextService, aiService)
 	dataRepository := repo.NewDataRepository(database)
 	dataService := service.NewDataService(dataRepository)
