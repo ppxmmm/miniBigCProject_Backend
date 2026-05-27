@@ -20,7 +20,16 @@ func New(appName string, database *gorm.DB, config util.Config) http.Handler {
 	dashboardHandler := handler.NewDashboardHandler(dashboardService)
 	accessService := service.NewMockAccessService()
 	dashboardContextService := service.NewDashboardContextService(dashboardService)
-	aiService := service.NewAIService(config.AI.GeminiAPIKey, config.AI.GeminiModel)
+	var mcpClient service.MCPToolClient
+	if config.AI.MCP.Enabled {
+		mcpClient = service.NewStdioMCPClient(
+			config.AI.MCP.Command,
+			config.AI.MCP.Args,
+			config.AI.MCP.BackendBaseURL,
+			config.AI.MCP.Timeout,
+		)
+	}
+	aiService := service.NewAIServiceWithMCP(config.AI.GeminiAPIKey, config.AI.GeminiModel, mcpClient)
 	aiHandler := handler.NewAIHandler(accessService, dashboardContextService, aiService)
 	dataRepository := repo.NewDataRepository(database)
 	dataService := service.NewDataService(dataRepository)

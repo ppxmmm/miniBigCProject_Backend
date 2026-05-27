@@ -12,22 +12,24 @@ import (
 )
 
 type fakeRoleStoreAccessService struct {
-	storeID string
-	err     error
+	access service.RoleAccess
+	err    error
 }
 
-func (service *fakeRoleStoreAccessService) StoreIDForRole(string) (string, error) {
-	return service.storeID, service.err
+func (service *fakeRoleStoreAccessService) AccessForRole(string) (service.RoleAccess, error) {
+	return service.access, service.err
 }
 
 type fakeDashboardContextService struct {
 	context string
 	err     error
+	gotRole string
 	gotID   string
 }
 
-func (service *fakeDashboardContextService) BuildContext(_ context.Context, storeID string, _ string) (string, error) {
-	service.gotID = storeID
+func (service *fakeDashboardContextService) BuildContext(_ context.Context, access service.RoleAccess, _ string) (string, error) {
+	service.gotRole = access.Role
+	service.gotID = access.StoreAccessID
 	return service.context, service.err
 }
 
@@ -38,7 +40,7 @@ type fakeAIService struct {
 	gotMessage string
 }
 
-func (service *fakeAIService) AskGemini(_ context.Context, question string, dashboardContext string) (string, error) {
+func (service *fakeAIService) AskGemini(_ context.Context, question string, dashboardContext string, _ service.RoleAccess) (string, error) {
 	service.gotMessage = question
 	service.gotContext = dashboardContext
 	return service.reply, service.err
@@ -78,7 +80,7 @@ func TestAIHandlerChatValidation(t *testing.T) {
 			t.Parallel()
 
 			handler := NewAIHandler(
-				&fakeRoleStoreAccessService{storeID: "store_001"},
+				&fakeRoleStoreAccessService{access: service.RoleAccess{Role: "manager", StoreAccessID: "store_001"}},
 				&fakeDashboardContextService{context: "safe context"},
 				&fakeAIService{reply: "reply"},
 			)
@@ -103,7 +105,7 @@ func TestAIHandlerChatSuccess(t *testing.T) {
 	contextService := &fakeDashboardContextService{context: "sales summary only"}
 	aiService := &fakeAIService{reply: "Sales are low because the weakest hour is 10:00."}
 	handler := NewAIHandler(
-		&fakeRoleStoreAccessService{storeID: "store_001"},
+		&fakeRoleStoreAccessService{access: service.RoleAccess{Role: "store_manager", StoreAccessID: "store_001", DashboardStoreID: 1, CanViewManagerData: true}},
 		contextService,
 		aiService,
 	)
@@ -121,6 +123,9 @@ func TestAIHandlerChatSuccess(t *testing.T) {
 	}
 	if contextService.gotID != "store_001" {
 		t.Fatalf("store id = %q, want store_001", contextService.gotID)
+	}
+	if contextService.gotRole != "store_manager" {
+		t.Fatalf("role = %q, want store_manager", contextService.gotRole)
 	}
 	if aiService.gotMessage != "Why are sales low today?" {
 		t.Fatalf("message = %q", aiService.gotMessage)
@@ -174,7 +179,10 @@ func TestAIHandlerChatErrors(t *testing.T) {
 			t.Parallel()
 
 			handler := NewAIHandler(
-				&fakeRoleStoreAccessService{storeID: "store_001", err: test.accessErr},
+				&fakeRoleStoreAccessService{
+					access: service.RoleAccess{Role: "manager", StoreAccessID: "store_001", DashboardStoreID: 1, CanViewManagerData: true},
+					err:    test.accessErr,
+				},
 				&fakeDashboardContextService{context: "safe context", err: test.contextErr},
 				&fakeAIService{reply: "reply", err: test.aiErr},
 			)

@@ -61,7 +61,18 @@ func TestDashboardContextServiceBuildContext(t *testing.T) {
 	}
 	service := NewDashboardContextService(dashboardService)
 
-	got, err := service.BuildContext(context.Background(), "store_001", "question")
+	got, err := service.BuildContext(context.Background(), RoleAccess{
+		Role:               "manager",
+		StoreAccessID:      "store_001",
+		DashboardStoreID:   1,
+		CanViewManagerData: true,
+		AllowedDataSummaries: []string{
+			"sales",
+			"orders",
+			"inventory",
+			"promotions",
+		},
+	}, "question")
 	if err != nil {
 		t.Fatalf("BuildContext returned error: %v", err)
 	}
@@ -75,10 +86,80 @@ func TestDashboardContextServiceBuildContext(t *testing.T) {
 			t.Fatalf("context missing %q:\n%s", text, got)
 		}
 	}
+	for _, text := range []string{
+		"Website data catalog for MCP tool selection:",
+		"sales/daily: daily sales and comparison series",
+		"top-products: top SKU sales",
+		"deliveries: order workload",
+	} {
+		if !strings.Contains(got, text) {
+			t.Fatalf("context missing data catalog detail %q:\n%s", text, got)
+		}
+	}
+	if !strings.Contains(got, "Authorized MCP store_id: 1") {
+		t.Fatalf("context missing authorized MCP store id:\n%s", got)
+	}
+	for _, text := range []string{
+		"MTD sales: THB 1000.00",
+		"dashboard target/comparison line THB 1200.00",
+		"In the website, MTD target means the backend daily comparison series.",
+	} {
+		if !strings.Contains(got, text) {
+			t.Fatalf("context missing MTD target detail %q:\n%s", text, got)
+		}
+	}
 	forbidden := []string{"Private Customer", "Private Address"}
 	for _, text := range forbidden {
 		if strings.Contains(got, text) {
 			t.Fatalf("context contains sensitive text %q:\n%s", text, got)
+		}
+	}
+}
+
+func TestDashboardContextServiceBuildContextStaffKeepsDashboardDataButLimitsTools(t *testing.T) {
+	t.Parallel()
+
+	dashboardService := &fakeContextDashboardService{
+		data: model.DashboardData{
+			Store: model.Store{NameEN: "Mini BigC Demo", Code: "MBC-0421"},
+			DailySales: []model.DailySale{
+				{SalesValue: 1000, ComparisonSalesValue: 1200},
+			},
+			CategorySales: []model.CategorySale{
+				{NameEN: "Food", SalesValue: 700, Share: 0.7, TrendPercent: -4},
+			},
+			InventoryItems: []model.InventoryItem{{NameEN: "Milk"}},
+			LowStockAlerts: []model.LowStockAlert{{NameEN: "Milk", StockQuantity: 2, ReorderQuantity: 20}},
+			Deliveries:     []model.Delivery{{Status: "preparing", OrderValue: 100, IsLate: true}},
+			Suggestions:    []model.Suggestion{{Kind: "promo", TitleEN: "Markdown bread", UpsideValue: 250}},
+		},
+	}
+	service := NewDashboardContextService(dashboardService)
+
+	got, err := service.BuildContext(context.Background(), RoleAccess{
+		Role:                 "staff",
+		StoreAccessID:        "store_001",
+		DashboardStoreID:     1,
+		CanViewManagerData:   false,
+		AllowedDataSummaries: []string{"sales", "orders", "inventory", "promotions"},
+	}, "question")
+	if err != nil {
+		t.Fatalf("BuildContext returned error: %v", err)
+	}
+
+	required := []string{
+		"Role: staff",
+		"MCP tool access is limited for this role.",
+		"Sales summary:",
+		"Latest daily sales",
+		"Order summary:",
+		"Inventory and low-stock summary:",
+		"Promotion and event summary:",
+		"Markdown bread",
+	}
+	for _, text := range required {
+		if !strings.Contains(got, text) {
+			t.Fatalf("staff context missing %q:\n%s", text, got)
 		}
 	}
 }
@@ -101,7 +182,15 @@ func TestDashboardContextServiceBuildContextErrors(t *testing.T) {
 			t.Parallel()
 
 			service := NewDashboardContextService(&fakeContextDashboardService{err: test.sourceErr})
-			_, err := service.BuildContext(context.Background(), test.storeID, "question")
+			access := RoleAccess{
+				Role:             "manager",
+				StoreAccessID:    test.storeID,
+				DashboardStoreID: 1,
+			}
+			if test.storeID == "store_999" {
+				access.DashboardStoreID = 0
+			}
+			_, err := service.BuildContext(context.Background(), access, "question")
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("error = %v, want %v", err, test.wantErr)
 			}

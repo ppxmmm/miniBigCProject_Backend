@@ -2,6 +2,26 @@
 
 This repository contains a Docker Compose configuration to help you quickly set up a PostgreSQL database and pgAdmin web interface for easy database management.
 
+## AI MCP Integration
+
+The AI chat service can expose tools from the bundled MCP server at `mcp_server` to Gemini. By default the backend starts the MCP server with:
+
+```bash
+mcp_server/venv/bin/python mcp_server/server.py
+```
+
+Useful environment variables:
+
+```bash
+MCP_ENABLED=true
+MCP_SERVER_COMMAND=mcp_server/venv/bin/python
+MCP_SERVER_ARGS=mcp_server/server.py
+MCP_TIMEOUT_SECONDS=10
+MINIBIGC_API_BASE_URL=http://localhost:5001
+```
+
+Set `MCP_ENABLED=false` to use the previous dashboard-context-only AI behavior. The backend skips the MCP server's `ai_chat` tool to avoid recursive AI calls, and exposes the read-only backend data tools to Gemini as callable functions.
+
 ## What is Docker?
 
 Docker is an open-source platform that enables developers to automate the deployment, scaling, and management of applications using containerization technology. Containers are lightweight, isolated environments that package applications and their dependencies, ensuring consistent execution across various environments.

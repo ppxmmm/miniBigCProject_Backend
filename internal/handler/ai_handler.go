@@ -3,6 +3,7 @@ package handler
 import (
 	"encoding/json"
 	"errors"
+	"log"
 	"net/http"
 	"strings"
 
@@ -49,19 +50,19 @@ func (handler *AIHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	storeID, err := handler.accessService.StoreIDForRole(request.Role)
+	access, err := handler.accessService.AccessForRole(request.Role)
 	if err != nil {
 		writeAIError(w, err)
 		return
 	}
 
-	dashboardContext, err := handler.dashboardContextService.BuildContext(r.Context(), storeID, request.Message)
+	dashboardContext, err := handler.dashboardContextService.BuildContext(r.Context(), access, request.Message)
 	if err != nil {
 		writeAIError(w, err)
 		return
 	}
 
-	reply, err := handler.aiService.AskGemini(r.Context(), request.Message, dashboardContext)
+	reply, err := handler.aiService.AskGemini(r.Context(), request.Message, dashboardContext, access)
 	if err != nil {
 		writeAIError(w, err)
 		return
@@ -71,6 +72,8 @@ func (handler *AIHandler) Chat(w http.ResponseWriter, r *http.Request) {
 }
 
 func writeAIError(w http.ResponseWriter, err error) {
+	log.Printf("AI request failed: %v", err)
+
 	switch {
 	case errors.Is(err, service.ErrForbiddenRole):
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "role is not allowed to access this store"})

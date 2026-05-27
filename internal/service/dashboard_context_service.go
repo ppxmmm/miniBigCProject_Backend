@@ -17,42 +17,47 @@ var ErrStoreAccessNotFound = errors.New("store access not found")
 
 // DashboardContextService builds a safe store-scoped prompt context.
 type DashboardContextService interface {
-	BuildContext(ctx context.Context, storeID string, question string) (string, error)
+	BuildContext(ctx context.Context, access RoleAccess, question string) (string, error)
 }
 
 type dashboardContextService struct {
 	dashboardService DashboardService
-	storeIDs         map[string]int64
 }
 
 // NewDashboardContextService creates a DashboardContextService.
 func NewDashboardContextService(dashboardService DashboardService) DashboardContextService {
 	return &dashboardContextService{
 		dashboardService: dashboardService,
-		storeIDs: map[string]int64{
-			"store_001": 1,
-		},
 	}
 }
 
-func (service *dashboardContextService) BuildContext(ctx context.Context, storeID string, _ string) (string, error) {
-	dashboardStoreID, ok := service.storeIDs[storeID]
-	if !ok {
+func (service *dashboardContextService) BuildContext(ctx context.Context, access RoleAccess, _ string) (string, error) {
+	if access.StoreAccessID == "" || access.DashboardStoreID == 0 {
 		return "", ErrStoreAccessNotFound
 	}
 
-	data, err := service.dashboardService.GetDashboardByStoreID(ctx, dashboardStoreID)
+	data, err := service.dashboardService.GetDashboardByStoreID(ctx, access.DashboardStoreID)
 	if errors.Is(err, repo.ErrNotFound) {
 		return "", ErrStoreAccessNotFound
 	}
 	if err != nil {
-		return "", fmt.Errorf("get dashboard context for %s: %w", storeID, err)
+		return "", fmt.Errorf("get dashboard context for %s: %w", access.StoreAccessID, err)
 	}
 
 	var builder strings.Builder
 	builder.WriteString("Dashboard data scope:\n")
-	builder.WriteString(fmt.Sprintf("- Store access ID: %s\n", storeID))
+	builder.WriteString(fmt.Sprintf("- Role: %s\n", access.Role))
+	builder.WriteString(fmt.Sprintf("- Store access ID: %s\n", access.StoreAccessID))
+	builder.WriteString(fmt.Sprintf("- Authorized MCP store_id: %d\n", access.DashboardStoreID))
 	builder.WriteString(fmt.Sprintf("- Store: %s (%s)\n\n", data.Store.NameEN, data.Store.Code))
+	builder.WriteString("Role permissions:\n")
+	builder.WriteString(fmt.Sprintf("- Allowed data summaries: %s\n", strings.Join(access.AllowedDataSummaries, ", ")))
+	if !access.CanViewManagerData {
+		builder.WriteString("- MCP tool access is limited for this role. Do not request revenue, sales, payment mix, top products, category sales, promotion, or suggestion tools.\n")
+	}
+	builder.WriteString("\n")
+
+	writeWebsiteDataCatalog(&builder, access)
 	writeSalesSummary(&builder, data)
 	writeOrderSummary(&builder, data.Deliveries)
 	writeInventorySummary(&builder, data)
@@ -61,8 +66,46 @@ func (service *dashboardContextService) BuildContext(ctx context.Context, storeI
 	return builder.String(), nil
 }
 
+func writeWebsiteDataCatalog(builder *strings.Builder, access RoleAccess) {
+	builder.WriteString("Website data catalog for MCP tool selection:\n")
+	builder.WriteString("- dashboard: broad store snapshot with sales, categories, payment mix, top products, inventory, deliveries, and suggestions. Use for open-ended questions or cross-functional diagnosis.\n")
+	builder.WriteString("- sales/hourly: intraday sales and comparison by hour. Use for today, traffic, weak hours, peak hours, staffing, and daypart questions.\n")
+	builder.WriteString("- sales/daily: daily sales and comparison series. Use for MTD, target/comparison line, pacing, recovery gap, week/month trend, and questions about why sales are below target.\n")
+	builder.WriteString("- sales/monthly: monthly sales series. Use for YTD, latest month, monthly average, and longer trend questions.\n")
+	builder.WriteString("- category-sales: category revenue, share, and trend. Use for which categories are driving or dragging sales.\n")
+	builder.WriteString("- payment-mix: payment method share. Use for cash, QR, card, wallet, and checkout behavior questions.\n")
+	builder.WriteString("- top-products: top SKU sales, quantity, and trend. Use for item gain/loss, hero SKUs, product movers, and basket opportunities.\n")
+	builder.WriteString("- inventory-items: product stock position. Use for stock quantity, location, price, and store inventory checks.\n")
+	builder.WriteString("- low-stock-alerts: SKUs below reorder level. Use for OOS risk and replenishment priorities.\n")
+	builder.WriteString("- expiring-inventory: near-expiry stock. Use for aging, shrink, markdown, and waste questions.\n")
+	builder.WriteString("- deliveries: order workload and fulfillment status. Use for delivery, open orders, late orders, OTIF-style operational questions.\n")
+	if access.CanViewManagerData {
+		builder.WriteString("- suggestions: backend actions, promotions, events, risk, inventory, and customer opportunities. Use for recommended next actions and recovery plans.\n")
+	} else {
+		builder.WriteString("- suggestions: manager-only MCP endpoint. Use dashboard context only if suggestions are summarized there.\n")
+	}
+	builder.WriteString("\n")
+}
+
 func writeSalesSummary(builder *strings.Builder, data model.DashboardData) {
 	builder.WriteString("Sales summary:\n")
+	if len(data.DailySales) > 0 {
+		var mtdSales float64
+		var mtdTarget float64
+		for _, sale := range data.DailySales {
+			mtdSales += sale.SalesValue
+			mtdTarget += sale.ComparisonSalesValue
+		}
+		gap := mtdSales - mtdTarget
+		percent := percentChange(mtdSales, mtdTarget)
+		builder.WriteString(fmt.Sprintf(
+			"- MTD sales: THB %.2f, dashboard target/comparison line THB %.2f, gap THB %.2f (%.1f%%). In the website, MTD target means the backend daily comparison series.\n",
+			mtdSales,
+			mtdTarget,
+			gap,
+			percent,
+		))
+	}
 	if len(data.DailySales) > 0 {
 		latest := data.DailySales[len(data.DailySales)-1]
 		delta := latest.SalesValue - latest.ComparisonSalesValue

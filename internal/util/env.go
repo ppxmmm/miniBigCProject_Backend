@@ -3,6 +3,9 @@ package util
 import (
 	"fmt"
 	"os"
+	"strconv"
+	"strings"
+	"time"
 )
 
 // Config contains runtime configuration loaded from environment variables.
@@ -27,6 +30,16 @@ type DBConfig struct {
 type AIConfig struct {
 	GeminiAPIKey string
 	GeminiModel  string
+	MCP          MCPConfig
+}
+
+// MCPConfig contains settings for the local MCP stdio server.
+type MCPConfig struct {
+	Enabled        bool
+	Command        string
+	Args           []string
+	BackendBaseURL string
+	Timeout        time.Duration
 }
 
 // Env returns an environment variable or the provided fallback.
@@ -41,6 +54,11 @@ func Env(key string, fallback string) string {
 
 // LoadConfig loads application configuration from environment variables.
 func LoadConfig() Config {
+	mcpTimeoutSeconds, err := strconv.Atoi(Env("MCP_TIMEOUT_SECONDS", "10"))
+	if err != nil || mcpTimeoutSeconds <= 0 {
+		mcpTimeoutSeconds = 10
+	}
+
 	return Config{
 		AppName: Env("APP_NAME", "Mini BigC API"),
 		Port:    Env("PORT", "5001"),
@@ -58,6 +76,13 @@ func LoadConfig() Config {
 		AI: AIConfig{
 			GeminiAPIKey: Env("GEMINI_API_KEY", ""),
 			GeminiModel:  Env("GEMINI_MODEL", "gemini-2.5-flash"),
+			MCP: MCPConfig{
+				Enabled:        strings.ToLower(Env("MCP_ENABLED", "true")) != "false",
+				Command:        Env("MCP_SERVER_COMMAND", "mcp_server/venv/bin/python"),
+				Args:           strings.Fields(Env("MCP_SERVER_ARGS", "mcp_server/server.py")),
+				BackendBaseURL: Env("MINIBIGC_API_BASE_URL", "http://localhost:"+Env("PORT", "5001")),
+				Timeout:        time.Duration(mcpTimeoutSeconds) * time.Second,
+			},
 		},
 	}
 }
