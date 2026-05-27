@@ -9,8 +9,13 @@ type DashboardPayload = {
   low_stock_alerts: unknown[];
 };
 
+const managerHeaders = { "X-User-Role": "manager" };
+const staffHeaders = { "X-User-Role": "staff" };
+
 async function fetchDefaultStoreId(request: APIRequestContext) {
-  const response = await request.get("/api/v1/dashboard");
+  const response = await request.get("/api/v1/dashboard", {
+    headers: managerHeaders,
+  });
   expect(response.ok()).toBeTruthy();
   const body = (await response.json()) as DashboardPayload;
   expect(body.store.code).toBe("MBC-0421");
@@ -19,7 +24,9 @@ async function fetchDefaultStoreId(request: APIRequestContext) {
 
 test.describe("Dashboard API", () => {
   test("GET /api/v1/dashboard returns seeded default store", async ({ request }) => {
-    const response = await request.get("/api/v1/dashboard");
+    const response = await request.get("/api/v1/dashboard", {
+      headers: managerHeaders,
+    });
     expect(response.ok()).toBeTruthy();
 
     const body = (await response.json()) as DashboardPayload;
@@ -32,7 +39,9 @@ test.describe("Dashboard API", () => {
   });
 
   test("GET /api/v1/stores lists seeded branches", async ({ request }) => {
-    const response = await request.get("/api/v1/stores");
+    const response = await request.get("/api/v1/stores", {
+      headers: staffHeaders,
+    });
     expect(response.ok()).toBeTruthy();
 
     const stores = (await response.json()) as Store[];
@@ -56,13 +65,15 @@ test.describe("Dashboard API", () => {
     ];
 
     for (const path of endpoints) {
-      const response = await request.get(path);
+      const response = await request.get(path, { headers: managerHeaders });
       expect(response.ok(), `${path} should succeed`).toBeTruthy();
     }
   });
 
   test("invalid store id returns 400", async ({ request }) => {
-    const response = await request.get("/api/v1/stores/not-a-number/top-products");
+    const response = await request.get("/api/v1/stores/not-a-number/top-products", {
+      headers: managerHeaders,
+    });
     expect(response.status()).toBe(400);
 
     const body = (await response.json()) as { error: string };
@@ -70,7 +81,19 @@ test.describe("Dashboard API", () => {
   });
 
   test("unknown store id returns 404", async ({ request }) => {
-    const response = await request.get("/api/v1/stores/999999/dashboard");
+    const response = await request.get("/api/v1/stores/999999/dashboard", {
+      headers: managerHeaders,
+    });
     expect(response.status()).toBe(404);
+  });
+
+  test("role middleware rejects missing and disallowed roles", async ({ request }) => {
+    const missingRole = await request.get("/api/v1/dashboard");
+    expect(missingRole.status()).toBe(401);
+
+    const managerOnly = await request.get("/api/v1/suggestions", {
+      headers: staffHeaders,
+    });
+    expect(managerOnly.status()).toBe(403);
   });
 });
