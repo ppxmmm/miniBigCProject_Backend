@@ -60,6 +60,26 @@ func TestDeterministicQuestionAuthorizationService(t *testing.T) {
 			wantDomain: "operational_actions",
 		},
 		{
+			name:       "thai compact improve today is operational actions",
+			question:   "วันนี้ปรับปรุงอะไร",
+			wantDomain: "operational_actions",
+		},
+		{
+			name:       "thai today fix question is operational actions",
+			question:   "วันนี้ต้องแก้อะไร",
+			wantDomain: "operational_actions",
+		},
+		{
+			name:       "thai today focus question is operational actions",
+			question:   "วันนี้ควรโฟกัสอะไร",
+			wantDomain: "operational_actions",
+		},
+		{
+			name:       "thai today concern question is operational actions",
+			question:   "วันนี้มีอะไรน่าห่วง",
+			wantDomain: "operational_actions",
+		},
+		{
 			name:       "thai product availability is staff allowed",
 			question:   "มีนมมั้ย",
 			wantDomain: "product_availability",
