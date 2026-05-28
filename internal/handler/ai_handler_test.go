@@ -46,6 +46,15 @@ func (service *fakeAIService) AskGemini(_ context.Context, question string, dash
 	return service.reply, service.err
 }
 
+type fakeQuestionAuthorizer struct {
+	decision service.QuestionAuthorizationDecision
+	err      error
+}
+
+func (authorizer fakeQuestionAuthorizer) ClassifyQuestion(context.Context, string, service.RoleAccess) (service.QuestionAuthorizationDecision, error) {
+	return authorizer.decision, authorizer.err
+}
+
 func TestAIHandlerChatValidation(t *testing.T) {
 	t.Parallel()
 
@@ -177,7 +186,19 @@ func TestAIHandlerChatRejectsStaffManagerOnlyQuestions(t *testing.T) {
 	handler := NewAIHandler(
 		&fakeRoleStoreAccessService{access: service.RoleAccess{Role: "staff", StoreAccessID: "store_001", DashboardStoreID: 1}},
 		contextService,
-		service.NewAIService("", ""),
+		service.NewAIServiceWithMCPTimeoutAndQuestionAuthorizer(
+			"",
+			"",
+			nil,
+			0,
+			fakeQuestionAuthorizer{
+				decision: service.QuestionAuthorizationDecision{
+					RequiresManagerData: true,
+					Domains:             []string{"sales_performance"},
+					Confidence:          0.97,
+				},
+			},
+		),
 	)
 	request := httptest.NewRequest(
 		http.MethodPost,
@@ -239,6 +260,12 @@ func TestAIHandlerChatErrors(t *testing.T) {
 			aiErr:      service.ErrUnresolvedGeminiFunctionCalls,
 			wantStatus: http.StatusBadGateway,
 			wantBody:   "{\"error\":\"Gemini function calls were not resolved\"}\n",
+		},
+		{
+			name:       "unsafe AI response",
+			aiErr:      service.ErrUnsafeAIResponse,
+			wantStatus: http.StatusForbidden,
+			wantBody:   "{\"error\":\"AI response did not pass authorization guardrails\"}\n",
 		},
 		{
 			name:       "AI request timeout",

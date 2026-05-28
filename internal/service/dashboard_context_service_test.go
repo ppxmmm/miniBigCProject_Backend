@@ -155,13 +155,14 @@ func TestDashboardContextServiceBuildContextStaffRedactsManagerMetrics(t *testin
 		"Order summary:",
 		"Inventory and low-stock summary:",
 		"Promotion and event summary:",
+		"Promotion, suggestion, and business recovery recommendations are restricted for this role.",
 	}
 	for _, text := range required {
 		if !strings.Contains(got, text) {
 			t.Fatalf("staff context missing %q:\n%s", text, got)
 		}
 	}
-	for _, forbidden := range []string{"Latest daily sales", "dashboard target/comparison line", "Top categories:", "Sales: THB"} {
+	for _, forbidden := range []string{"Latest daily sales", "dashboard target/comparison line", "Top categories:", "Sales: THB", "Markdown bread"} {
 		if strings.Contains(got, forbidden) {
 			t.Fatalf("staff context leaked %q:\n%s", forbidden, got)
 		}

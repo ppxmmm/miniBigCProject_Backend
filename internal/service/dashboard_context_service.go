@@ -61,7 +61,7 @@ func (service *dashboardContextService) BuildContext(ctx context.Context, access
 	writeSalesSummary(&builder, access, data)
 	writeOrderSummary(&builder, data.Deliveries)
 	writeInventorySummary(&builder, data)
-	writePromotionSummary(&builder, data.Suggestions)
+	writePromotionSummary(&builder, access, data.Suggestions)
 
 	return builder.String(), nil
 }
@@ -226,8 +226,12 @@ func writeInventorySummary(builder *strings.Builder, data model.DashboardData) {
 	builder.WriteString("\n")
 }
 
-func writePromotionSummary(builder *strings.Builder, suggestions []model.Suggestion) {
+func writePromotionSummary(builder *strings.Builder, access RoleAccess, suggestions []model.Suggestion) {
 	builder.WriteString("Promotion and event summary:\n")
+	if !access.CanViewManagerData {
+		builder.WriteString("- Promotion, suggestion, and business recovery recommendations are restricted for this role.\n")
+		return
+	}
 	if len(suggestions) == 0 {
 		builder.WriteString("- No promotion or event suggestions are available.\n")
 		return

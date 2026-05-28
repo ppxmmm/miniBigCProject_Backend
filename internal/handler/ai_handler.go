@@ -91,6 +91,10 @@ func writeAIError(w http.ResponseWriter, err error) {
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "role is not allowed to access this store"})
 	case errors.Is(err, service.ErrUnauthorizedManagerData):
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "manager-only data is not authorized for this role"})
+	case errors.Is(err, service.ErrUnclearQuestionAuthorization):
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "question authorization is unclear"})
+	case errors.Is(err, service.ErrUnsafeAIResponse):
+		writeJSON(w, http.StatusForbidden, map[string]string{"error": "AI response did not pass authorization guardrails"})
 	case errors.Is(err, service.ErrStoreAccessNotFound):
 		writeJSON(w, http.StatusForbidden, map[string]string{"error": "store access not found"})
 	case errors.Is(err, service.ErrMissingGeminiAPIKey):

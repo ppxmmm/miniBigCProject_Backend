@@ -11,28 +11,76 @@ import (
 	"google.golang.org/genai"
 )
 
+type fakeQuestionAuthorizer struct {
+	decision QuestionAuthorizationDecision
+	err      error
+}
+
+func (authorizer fakeQuestionAuthorizer) ClassifyQuestion(context.Context, string, RoleAccess) (QuestionAuthorizationDecision, error) {
+	return authorizer.decision, authorizer.err
+}
+
 func TestAIServiceMissingGeminiAPIKey(t *testing.T) {
 	t.Parallel()
 
 	service := NewAIService("", "")
 	_, err := service.AskGemini(context.Background(), "question", "context", RoleAccess{})
-	if !errors.Is(err, ErrMissingGeminiAPIKey) {
-		t.Fatalf("error = %v, want %v", err, ErrMissingGeminiAPIKey)
+	if !errors.Is(err, ErrUnclearQuestionAuthorization) {
+		t.Fatalf("error = %v, want %v", err, ErrUnclearQuestionAuthorization)
 	}
 }
 
 func TestAIServiceRejectsUnauthorizedManagerQuestionsForStaff(t *testing.T) {
 	t.Parallel()
 
-	service := NewAIService("", "")
+	service := NewAIServiceWithMCPTimeoutAndQuestionAuthorizer(
+		"",
+		"",
+		nil,
+		defaultAITimeout,
+		fakeQuestionAuthorizer{
+			decision: QuestionAuthorizationDecision{
+				RequiresManagerData: true,
+				Domains:             []string{"sales_performance"},
+				Confidence:          0.98,
+			},
+		},
+	)
 	_, err := service.AskGemini(
 		context.Background(),
-		"What is the revenue today?",
+		"How much money did we make today?",
 		"context",
 		RoleAccess{Role: "staff", StoreAccessID: "store_001", DashboardStoreID: 1},
 	)
 	if !errors.Is(err, ErrUnauthorizedManagerData) {
 		t.Fatalf("error = %v, want %v", err, ErrUnauthorizedManagerData)
+	}
+}
+
+func TestAIServiceAllowsStaffQuestionWhenClassifierAllowsIt(t *testing.T) {
+	t.Parallel()
+
+	service := NewAIServiceWithMCPTimeoutAndQuestionAuthorizer(
+		"",
+		"",
+		nil,
+		defaultAITimeout,
+		fakeQuestionAuthorizer{
+			decision: QuestionAuthorizationDecision{
+				RequiresManagerData: false,
+				Domains:             []string{"low_stock"},
+				Confidence:          0.94,
+			},
+		},
+	)
+	_, err := service.AskGemini(
+		context.Background(),
+		"Which items are running out?",
+		"context",
+		RoleAccess{Role: "staff", StoreAccessID: "store_001", DashboardStoreID: 1},
+	)
+	if !errors.Is(err, ErrMissingGeminiAPIKey) {
+		t.Fatalf("error = %v, want %v after authorization passes", err, ErrMissingGeminiAPIKey)
 	}
 }
 
