@@ -53,42 +53,46 @@ func (service *dashboardContextService) BuildContext(ctx context.Context, access
 	builder.WriteString("Role permissions:\n")
 	builder.WriteString(fmt.Sprintf("- Allowed data summaries: %s\n", strings.Join(access.AllowedDataSummaries, ", ")))
 	if !access.CanViewManagerData {
-		builder.WriteString("- MCP tool access is limited for this role. Do not request revenue, sales, payment mix, top products, category sales, promotion, or suggestion tools.\n")
+		builder.WriteString("- MCP tool access is limited for this role. Revenue, sales, payment mix, top products, category sales, promotion, and suggestion data are not authorized here.\n")
 	}
 	builder.WriteString("\n")
 
 	writeWebsiteDataCatalog(&builder, access)
-	writeSalesSummary(&builder, data)
+	writeSalesSummary(&builder, access, data)
 	writeOrderSummary(&builder, data.Deliveries)
 	writeInventorySummary(&builder, data)
-	writePromotionSummary(&builder, data.Suggestions)
+	writePromotionSummary(&builder, access, data.Suggestions)
 
 	return builder.String(), nil
 }
 
 func writeWebsiteDataCatalog(builder *strings.Builder, access RoleAccess) {
 	builder.WriteString("Website data catalog for MCP tool selection:\n")
-	builder.WriteString("- dashboard: broad store snapshot with sales, categories, payment mix, top products, inventory, deliveries, and suggestions. Use for open-ended questions or cross-functional diagnosis.\n")
-	builder.WriteString("- sales/hourly: intraday sales and comparison by hour. Use for today, traffic, weak hours, peak hours, staffing, and daypart questions.\n")
-	builder.WriteString("- sales/daily: daily sales and comparison series. Use for MTD, target/comparison line, pacing, recovery gap, week/month trend, and questions about why sales are below target.\n")
-	builder.WriteString("- sales/monthly: monthly sales series. Use for YTD, latest month, monthly average, and longer trend questions.\n")
-	builder.WriteString("- category-sales: category revenue, share, and trend. Use for which categories are driving or dragging sales.\n")
-	builder.WriteString("- payment-mix: payment method share. Use for cash, QR, card, wallet, and checkout behavior questions.\n")
-	builder.WriteString("- top-products: top SKU sales, quantity, and trend. Use for item gain/loss, hero SKUs, product movers, and basket opportunities.\n")
+	if access.CanViewManagerData {
+		builder.WriteString("- dashboard: broad store snapshot with sales, categories, payment mix, top products, inventory, deliveries, and suggestions. Use for open-ended questions or cross-functional diagnosis.\n")
+		builder.WriteString("- sales/hourly: intraday sales and comparison by hour. Use for today, traffic, weak hours, peak hours, staffing, and daypart questions.\n")
+		builder.WriteString("- sales/daily: daily sales and comparison series. Use for MTD, target/comparison line, pacing, recovery gap, week/month trend, and questions about why sales are below target.\n")
+		builder.WriteString("- sales/monthly: monthly sales series. Use for YTD, latest month, monthly average, and longer trend questions.\n")
+		builder.WriteString("- category-sales: category revenue, share, and trend. Use for which categories are driving or dragging sales.\n")
+		builder.WriteString("- payment-mix: payment method share. Use for cash, QR, card, wallet, and checkout behavior questions.\n")
+		builder.WriteString("- top-products: top SKU sales, quantity, and trend. Use for item gain/loss, hero SKUs, product movers, and basket opportunities.\n")
+		builder.WriteString("- suggestions: backend actions, promotions, events, risk, inventory, and customer opportunities. Use for recommended next actions and recovery plans.\n")
+	} else {
+		builder.WriteString("- dashboard, sales/hourly, sales/daily, sales/monthly, category-sales, payment-mix, top-products, suggestions: manager-only data and unavailable to this role.\n")
+	}
 	builder.WriteString("- inventory-items: product stock position. Use for stock quantity, location, price, and store inventory checks.\n")
 	builder.WriteString("- low-stock-alerts: SKUs below reorder level. Use for OOS risk and replenishment priorities.\n")
 	builder.WriteString("- expiring-inventory: near-expiry stock. Use for aging, shrink, markdown, and waste questions.\n")
 	builder.WriteString("- deliveries: order workload and fulfillment status. Use for delivery, open orders, late orders, OTIF-style operational questions.\n")
-	if access.CanViewManagerData {
-		builder.WriteString("- suggestions: backend actions, promotions, events, risk, inventory, and customer opportunities. Use for recommended next actions and recovery plans.\n")
-	} else {
-		builder.WriteString("- suggestions: manager-only MCP endpoint. Use dashboard context only if suggestions are summarized there.\n")
-	}
 	builder.WriteString("\n")
 }
 
-func writeSalesSummary(builder *strings.Builder, data model.DashboardData) {
+func writeSalesSummary(builder *strings.Builder, access RoleAccess, data model.DashboardData) {
 	builder.WriteString("Sales summary:\n")
+	if !access.CanViewManagerData {
+		builder.WriteString("- Sales, revenue, category, payment mix, and top-product metrics are restricted for this role.\n\n")
+		return
+	}
 	if len(data.DailySales) > 0 {
 		var mtdSales float64
 		var mtdTarget float64
@@ -222,8 +226,12 @@ func writeInventorySummary(builder *strings.Builder, data model.DashboardData) {
 	builder.WriteString("\n")
 }
 
-func writePromotionSummary(builder *strings.Builder, suggestions []model.Suggestion) {
+func writePromotionSummary(builder *strings.Builder, access RoleAccess, suggestions []model.Suggestion) {
 	builder.WriteString("Promotion and event summary:\n")
+	if !access.CanViewManagerData {
+		builder.WriteString("- Promotion, suggestion, and business recovery recommendations are restricted for this role.\n")
+		return
+	}
 	if len(suggestions) == 0 {
 		builder.WriteString("- No promotion or event suggestions are available.\n")
 		return

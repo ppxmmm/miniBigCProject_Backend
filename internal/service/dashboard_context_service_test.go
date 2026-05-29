@@ -116,7 +116,7 @@ func TestDashboardContextServiceBuildContext(t *testing.T) {
 	}
 }
 
-func TestDashboardContextServiceBuildContextStaffKeepsDashboardDataButLimitsTools(t *testing.T) {
+func TestDashboardContextServiceBuildContextStaffRedactsManagerMetrics(t *testing.T) {
 	t.Parallel()
 
 	dashboardService := &fakeContextDashboardService{
@@ -151,15 +151,20 @@ func TestDashboardContextServiceBuildContextStaffKeepsDashboardDataButLimitsTool
 		"Role: staff",
 		"MCP tool access is limited for this role.",
 		"Sales summary:",
-		"Latest daily sales",
+		"Sales, revenue, category, payment mix, and top-product metrics are restricted for this role.",
 		"Order summary:",
 		"Inventory and low-stock summary:",
 		"Promotion and event summary:",
-		"Markdown bread",
+		"Promotion, suggestion, and business recovery recommendations are restricted for this role.",
 	}
 	for _, text := range required {
 		if !strings.Contains(got, text) {
 			t.Fatalf("staff context missing %q:\n%s", text, got)
+		}
+	}
+	for _, forbidden := range []string{"Latest daily sales", "dashboard target/comparison line", "Top categories:", "Sales: THB", "Markdown bread"} {
+		if strings.Contains(got, forbidden) {
+			t.Fatalf("staff context leaked %q:\n%s", forbidden, got)
 		}
 	}
 }

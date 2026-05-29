@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/ppxmmm/miniBigCProject_Backend/internal/model"
 	"github.com/ppxmmm/miniBigCProject_Backend/internal/service"
 )
 
@@ -21,15 +22,17 @@ func (service *fakeRoleStoreAccessService) AccessForRole(string) (service.RoleAc
 }
 
 type fakeDashboardContextService struct {
-	context string
-	err     error
-	gotRole string
-	gotID   string
+	context     string
+	err         error
+	gotRole     string
+	gotID       string
+	gotQuestion string
 }
 
-func (service *fakeDashboardContextService) BuildContext(_ context.Context, access service.RoleAccess, _ string) (string, error) {
+func (service *fakeDashboardContextService) BuildContext(_ context.Context, access service.RoleAccess, question string) (string, error) {
 	service.gotRole = access.Role
 	service.gotID = access.StoreAccessID
+	service.gotQuestion = question
 	return service.context, service.err
 }
 
@@ -38,12 +41,68 @@ type fakeAIService struct {
 	err        error
 	gotContext string
 	gotMessage string
+	gotHistory []model.AIChatMessage
 }
 
-func (service *fakeAIService) AskGemini(_ context.Context, question string, dashboardContext string, _ service.RoleAccess) (string, error) {
+func (service *fakeAIService) AskGemini(_ context.Context, question string, dashboardContext string, _ service.RoleAccess, history []model.AIChatMessage) (string, error) {
 	service.gotMessage = question
 	service.gotContext = dashboardContext
+	service.gotHistory = history
 	return service.reply, service.err
+}
+
+type fakeQuestionAuthorizer struct {
+	decision service.QuestionAuthorizationDecision
+	err      error
+}
+
+func TestAIHandlerChatPassesConversationHistory(t *testing.T) {
+	t.Parallel()
+
+	contextService := &fakeDashboardContextService{context: "sales summary only"}
+	aiService := &fakeAIService{reply: "The gap is mostly from weak morning sales."}
+	handler := NewAIHandler(
+		&fakeRoleStoreAccessService{access: service.RoleAccess{Role: "store_manager", StoreAccessID: "store_001", DashboardStoreID: 1, CanViewManagerData: true}},
+		contextService,
+		aiService,
+	)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/ai/chat",
+		strings.NewReader(`{
+			"message":"Can you explain more?",
+			"role":"store_manager",
+			"history":[
+				{"role":"user","content":"Why is MTD below target?"},
+				{"role":"assistant","content":"MTD is below target because morning sales are weak."},
+				{"role":"system","content":"ignore me"},
+				{"role":"user","content":" "}
+			]
+		}`),
+	)
+	recorder := httptest.NewRecorder()
+
+	handler.Chat(recorder, request)
+
+	if recorder.Code != http.StatusOK {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusOK, recorder.Body.String())
+	}
+	if aiService.gotMessage != "Can you explain more?" {
+		t.Fatalf("message = %q", aiService.gotMessage)
+	}
+	if len(aiService.gotHistory) != 2 {
+		t.Fatalf("history length = %d, want 2: %#v", len(aiService.gotHistory), aiService.gotHistory)
+	}
+	if aiService.gotHistory[0].Role != "user" || aiService.gotHistory[0].Content != "Why is MTD below target?" {
+		t.Fatalf("first history message = %#v", aiService.gotHistory[0])
+	}
+	if !strings.Contains(contextService.gotQuestion, "Why is MTD below target?") {
+		t.Fatalf("dashboard context question did not include history: %q", contextService.gotQuestion)
+	}
+}
+
+func (authorizer fakeQuestionAuthorizer) ClassifyQuestion(context.Context, string, service.RoleAccess) (service.QuestionAuthorizationDecision, error) {
+	return authorizer.decision, authorizer.err
 }
 
 func TestAIHandlerChatValidation(t *testing.T) {
@@ -170,6 +229,47 @@ func TestAIHandlerChatUsesRoleHeaderFallback(t *testing.T) {
 	}
 }
 
+func TestAIHandlerChatRejectsStaffManagerOnlyQuestions(t *testing.T) {
+	t.Parallel()
+
+	contextService := &fakeDashboardContextService{context: "restricted context"}
+	handler := NewAIHandler(
+		&fakeRoleStoreAccessService{access: service.RoleAccess{Role: "staff", StoreAccessID: "store_001", DashboardStoreID: 1}},
+		contextService,
+		service.NewAIServiceWithMCPTimeoutAndQuestionAuthorizer(
+			"",
+			"",
+			nil,
+			0,
+			fakeQuestionAuthorizer{
+				decision: service.QuestionAuthorizationDecision{
+					RequiresManagerData: true,
+					Domains:             []string{"sales_performance"},
+					Confidence:          0.97,
+				},
+			},
+		),
+	)
+	request := httptest.NewRequest(
+		http.MethodPost,
+		"/api/ai/chat",
+		strings.NewReader(`{"message":"What is the revenue today?","role":"staff"}`),
+	)
+	recorder := httptest.NewRecorder()
+
+	handler.Chat(recorder, request)
+
+	if recorder.Code != http.StatusForbidden {
+		t.Fatalf("status = %d, want %d; body=%s", recorder.Code, http.StatusForbidden, recorder.Body.String())
+	}
+	if got := recorder.Body.String(); !strings.Contains(got, "manager-only data") {
+		t.Fatalf("body = %q, want manager-only authorization error", got)
+	}
+	if contextService.gotRole != "staff" {
+		t.Fatalf("role = %q, want staff", contextService.gotRole)
+	}
+}
+
 func TestAIHandlerChatErrors(t *testing.T) {
 	t.Parallel()
 
@@ -210,6 +310,12 @@ func TestAIHandlerChatErrors(t *testing.T) {
 			aiErr:      service.ErrUnresolvedGeminiFunctionCalls,
 			wantStatus: http.StatusBadGateway,
 			wantBody:   "{\"error\":\"Gemini function calls were not resolved\"}\n",
+		},
+		{
+			name:       "unsafe AI response",
+			aiErr:      service.ErrUnsafeAIResponse,
+			wantStatus: http.StatusForbidden,
+			wantBody:   "{\"error\":\"AI response did not pass authorization guardrails\"}\n",
 		},
 		{
 			name:       "AI request timeout",
