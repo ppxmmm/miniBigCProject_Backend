@@ -9,6 +9,8 @@ import (
 	"time"
 
 	"google.golang.org/genai"
+
+	"github.com/ppxmmm/miniBigCProject_Backend/internal/model"
 )
 
 type fakeQuestionAuthorizer struct {
@@ -24,7 +26,7 @@ func TestAIServiceMissingGeminiAPIKey(t *testing.T) {
 	t.Parallel()
 
 	service := NewAIService("", "")
-	_, err := service.AskGemini(context.Background(), "question", "context", RoleAccess{})
+	_, err := service.AskGemini(context.Background(), "question", "context", RoleAccess{}, nil)
 	if !errors.Is(err, ErrUnclearQuestionAuthorization) {
 		t.Fatalf("error = %v, want %v", err, ErrUnclearQuestionAuthorization)
 	}
@@ -51,6 +53,7 @@ func TestAIServiceRejectsUnauthorizedManagerQuestionsForStaff(t *testing.T) {
 		"How much money did we make today?",
 		"context",
 		RoleAccess{Role: "staff", StoreAccessID: "store_001", DashboardStoreID: 1},
+		nil,
 	)
 	if !errors.Is(err, ErrUnauthorizedManagerData) {
 		t.Fatalf("error = %v, want %v", err, ErrUnauthorizedManagerData)
@@ -78,9 +81,50 @@ func TestAIServiceAllowsStaffQuestionWhenClassifierAllowsIt(t *testing.T) {
 		"Which items are running out?",
 		"context",
 		RoleAccess{Role: "staff", StoreAccessID: "store_001", DashboardStoreID: 1},
+		nil,
 	)
 	if !errors.Is(err, ErrMissingGeminiAPIKey) {
 		t.Fatalf("error = %v, want %v after authorization passes", err, ErrMissingGeminiAPIKey)
+	}
+}
+
+func TestQuestionWithHistoryAddsPriorTurns(t *testing.T) {
+	t.Parallel()
+
+	got := questionWithHistory(
+		"Can you explain more?",
+		[]model.AIChatMessage{
+			{Role: "user", Content: "Why is MTD below target?"},
+			{Role: "assistant", Content: "Morning sales are weak."},
+		},
+	)
+
+	if !strings.Contains(got, "Why is MTD below target?") {
+		t.Fatalf("history missing from contextual question: %q", got)
+	}
+	if !strings.Contains(got, "Current user question:\nCan you explain more?") {
+		t.Fatalf("current question missing from contextual question: %q", got)
+	}
+}
+
+func TestSanitizeChatHistory(t *testing.T) {
+	t.Parallel()
+
+	got := sanitizeChatHistory([]model.AIChatMessage{
+		{Role: " user ", Content: " first "},
+		{Role: "system", Content: "drop"},
+		{Role: "assistant", Content: ""},
+		{Role: "ASSISTANT", Content: " second "},
+	})
+
+	if len(got) != 2 {
+		t.Fatalf("history length = %d, want 2: %#v", len(got), got)
+	}
+	if got[0].Role != "user" || got[0].Content != "first" {
+		t.Fatalf("first sanitized message = %#v", got[0])
+	}
+	if got[1].Role != "assistant" || got[1].Content != "second" {
+		t.Fatalf("second sanitized message = %#v", got[1])
 	}
 }
 

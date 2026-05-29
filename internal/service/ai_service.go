@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/ppxmmm/miniBigCProject_Backend/internal/model"
 	"google.golang.org/genai"
 )
 
@@ -44,7 +45,7 @@ func geminiToolCallingEnabled() bool {
 
 // AIService asks Gemini questions using safe dashboard context.
 type AIService interface {
-	AskGemini(ctx context.Context, question string, dashboardContext string, access RoleAccess) (string, error)
+	AskGemini(ctx context.Context, question string, dashboardContext string, access RoleAccess, history []model.AIChatMessage) (string, error)
 }
 
 type geminiAIService struct {
@@ -98,8 +99,11 @@ func NewAIServiceWithMCPTimeoutAndQuestionAuthorizer(
 	}
 }
 
-func (service *geminiAIService) AskGemini(ctx context.Context, question string, dashboardContext string, access RoleAccess) (string, error) {
-	decision, err := service.validateAIQuestionAuthorization(ctx, access, question)
+func (service *geminiAIService) AskGemini(ctx context.Context, question string, dashboardContext string, access RoleAccess, history []model.AIChatMessage) (string, error) {
+	history = sanitizeChatHistory(history)
+	contextualQuestion := questionWithHistory(question, history)
+
+	decision, err := service.validateAIQuestionAuthorization(ctx, access, contextualQuestion)
 	if err != nil {
 		return "", err
 	}
@@ -116,7 +120,7 @@ func (service *geminiAIService) AskGemini(ctx context.Context, question string, 
 	mcpEvidence := ""
 	// Prefetch only when live tool-calling is off; otherwise Gemini should call MCP tools itself.
 	if service.mcpClient != nil && !toolCallingEnabled {
-		evidence, err := service.prefetchMCPEvidence(ctx, question, access)
+		evidence, err := service.prefetchMCPEvidence(ctx, contextualQuestion, access)
 		if err != nil {
 			log.Printf("MCP prefetch failed: %v", err)
 		} else {
@@ -156,17 +160,20 @@ func (service *geminiAIService) AskGemini(ctx context.Context, question string, 
 	}
 
 	var prompt string
+	conversationHistory := formatChatHistory(history)
 	if toolCallingEnabled {
 		prompt = fmt.Sprintf(
-			"Dashboard context (metadata only — call MCP tools for live numbers):\n%s\n\nUser question:\n%s\n\nYou must call MCP tools before answering. Start with get_store_dashboard, then call get_store_data for any extra endpoints you need.",
+			"Dashboard context (metadata only — call MCP tools for live numbers):\n%s\n\nRecent conversation:\n%s\n\nCurrent user question:\n%s\n\nAnswer the current question using the recent conversation only as follow-up context. You must call MCP tools before answering. Start with get_store_dashboard, then call get_store_data for any extra endpoints you need.",
 			dashboardContext,
+			conversationHistory,
 			question,
 		)
 	} else {
 		prompt = fmt.Sprintf(
-			"Dashboard context:\n%s\n\nMCP evidence:\n%s\n\nUser question:\n%s",
+			"Dashboard context:\n%s\n\nMCP evidence:\n%s\n\nRecent conversation:\n%s\n\nCurrent user question:\n%s",
 			dashboardContext,
 			mcpEvidence,
+			conversationHistory,
 			question,
 		)
 		prompt += "\n\nReply with a plain-text operations brief only. Do not emit function calls or tool requests."
@@ -214,6 +221,62 @@ func (service *geminiAIService) AskGemini(ctx context.Context, question string, 
 	}
 
 	return reply, nil
+}
+
+func sanitizeChatHistory(history []model.AIChatMessage) []model.AIChatMessage {
+	if len(history) == 0 {
+		return nil
+	}
+
+	const maxHistoryMessages = 10
+	if len(history) > maxHistoryMessages {
+		history = history[len(history)-maxHistoryMessages:]
+	}
+
+	sanitized := make([]model.AIChatMessage, 0, len(history))
+	for _, message := range history {
+		role := strings.TrimSpace(strings.ToLower(message.Role))
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		content := strings.TrimSpace(message.Content)
+		if content == "" {
+			continue
+		}
+		const maxHistoryContentLength = 1200
+		if len(content) > maxHistoryContentLength {
+			content = content[:maxHistoryContentLength] + "... truncated"
+		}
+		sanitized = append(sanitized, model.AIChatMessage{Role: role, Content: content})
+	}
+
+	return sanitized
+}
+
+func formatChatHistory(history []model.AIChatMessage) string {
+	if len(history) == 0 {
+		return "No prior conversation."
+	}
+
+	var builder strings.Builder
+	for i, message := range history {
+		if i > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString("- ")
+		builder.WriteString(message.Role)
+		builder.WriteString(": ")
+		builder.WriteString(message.Content)
+	}
+	return builder.String()
+}
+
+func questionWithHistory(question string, history []model.AIChatMessage) string {
+	if len(history) == 0 {
+		return question
+	}
+
+	return fmt.Sprintf("Recent conversation:\n%s\n\nCurrent user question:\n%s", formatChatHistory(history), question)
 }
 
 func (service *geminiAIService) operationContext(parent context.Context) (context.Context, context.CancelFunc) {

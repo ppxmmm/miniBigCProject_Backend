@@ -59,19 +59,69 @@ func (handler *AIHandler) Chat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dashboardContext, err := handler.dashboardContextService.BuildContext(r.Context(), access, request.Message)
+	request.History = sanitizeAIChatRequestHistory(request.History)
+	contextualMessage := request.Message
+	if len(request.History) > 0 {
+		contextualMessage = request.Message + "\n\nRecent conversation:\n" + formatAIChatRequestHistory(request.History)
+	}
+
+	dashboardContext, err := handler.dashboardContextService.BuildContext(r.Context(), access, contextualMessage)
 	if err != nil {
 		writeAIError(w, err)
 		return
 	}
 
-	reply, err := handler.aiService.AskGemini(r.Context(), request.Message, dashboardContext, access)
+	reply, err := handler.aiService.AskGemini(r.Context(), request.Message, dashboardContext, access, request.History)
 	if err != nil {
 		writeAIError(w, err)
 		return
 	}
 
 	writeJSON(w, http.StatusOK, model.AIChatResponse{Reply: reply})
+}
+
+func sanitizeAIChatRequestHistory(history []model.AIChatMessage) []model.AIChatMessage {
+	if len(history) == 0 {
+		return nil
+	}
+
+	const maxHistoryMessages = 10
+	if len(history) > maxHistoryMessages {
+		history = history[len(history)-maxHistoryMessages:]
+	}
+
+	sanitized := make([]model.AIChatMessage, 0, len(history))
+	for _, message := range history {
+		role := strings.ToLower(strings.TrimSpace(message.Role))
+		if role != "user" && role != "assistant" {
+			continue
+		}
+		content := strings.TrimSpace(message.Content)
+		if content == "" {
+			continue
+		}
+		const maxHistoryContentLength = 1200
+		if len(content) > maxHistoryContentLength {
+			content = content[:maxHistoryContentLength] + "... truncated"
+		}
+		sanitized = append(sanitized, model.AIChatMessage{Role: role, Content: content})
+	}
+
+	return sanitized
+}
+
+func formatAIChatRequestHistory(history []model.AIChatMessage) string {
+	var builder strings.Builder
+	for i, message := range history {
+		if i > 0 {
+			builder.WriteString("\n")
+		}
+		builder.WriteString("- ")
+		builder.WriteString(message.Role)
+		builder.WriteString(": ")
+		builder.WriteString(message.Content)
+	}
+	return builder.String()
 }
 
 func roleFromAIRequestHeader(r *http.Request) string {
